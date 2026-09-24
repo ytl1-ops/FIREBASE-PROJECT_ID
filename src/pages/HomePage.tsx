@@ -4,12 +4,13 @@ import { formatTimestamp } from "../../shared/transcript.ts";
 import { CLASSIFICATION_LABELS } from "../../shared/types.ts";
 import { navigate } from "../App.tsx";
 import { appendAudioChunk, createMeeting, listMeetings, saveMeeting, type Meeting } from "../lib/db.ts";
+import { ACCEPTED_FILES, readAttachment } from "../lib/attachments.ts";
 import { defaultMeetingInfo } from "../lib/meeting.ts";
 import { importMeetingPackage, PasswordRequiredError } from "../lib/share.ts";
 
 function audioDuration(file: Blob): Promise<number> {
   return new Promise((resolve) => {
-    const audio = new Audio();
+    const audio = document.createElement(file.type.startsWith("video/") ? "video" : "audio");
     const url = URL.createObjectURL(file);
     audio.preload = "metadata";
     audio.onloadedmetadata = () => {
@@ -26,6 +27,26 @@ export function HomePage() {
   const [query, setQuery] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const packageInput = useRef<HTMLInputElement>(null);
+  const docsInput = useRef<HTMLInputElement>(null);
+
+  /** Synthèse documentaire : nouvelle « réunion » sans enregistrement, alimentée par des fichiers. */
+  async function synthesizeFiles(files: FileList) {
+    setError(null);
+    try {
+      const attachments = await Promise.all(Array.from(files).map(readAttachment));
+      const info = defaultMeetingInfo();
+      info.title =
+        attachments.length === 1
+          ? `Synthèse — ${attachments[0].name.replace(/\.[^.]+$/, "")}`
+          : `Synthèse de ${attachments.length} documents`;
+      const meeting = createMeeting(info);
+      meeting.attachments = attachments;
+      await saveMeeting(meeting);
+      navigate(`/reunion/${meeting.id}?onglet=documents`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
   const [error, setError] = useState<string | null>(null);
 
   async function importPackage(file: File) {
@@ -79,13 +100,25 @@ export function HomePage() {
           <div>
             <h1>Mes réunions</h1>
             <p className="muted small" style={{ margin: 0 }}>
-              Enregistrez, transcrivez avec identification des intervenants, puis générez PV,
-              comptes rendus, notes de synthèse et TBM.
+              Enregistrez (audio ou vidéo), transcrivez avec identification des intervenants,
+              ajoutez vos documents, puis générez PV, comptes rendus, notes de synthèse et TBM.
             </p>
           </div>
           <div className="row">
+            <button onClick={() => docsInput.current?.click()}>✦ Synthétiser des fichiers</button>
+            <input
+              ref={docsInput}
+              type="file"
+              multiple
+              accept={ACCEPTED_FILES}
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) void synthesizeFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
             <button onClick={() => packageInput.current?.click()}>⤒ Importer une réunion</button>
-            <button onClick={() => fileInput.current?.click()}>⤒ Importer un audio</button>
+            <button onClick={() => fileInput.current?.click()}>⤒ Importer un audio / une vidéo</button>
             <input
               ref={packageInput}
               type="file"
@@ -103,7 +136,7 @@ export function HomePage() {
             <input
               ref={fileInput}
               type="file"
-              accept="audio/*,video/mp4,video/webm"
+              accept="audio/*,video/*"
               hidden
               onChange={(e) => {
                 const file = e.target.files?.[0];

@@ -4,6 +4,7 @@
  * - paquet de réunion `.monmeeting`, chiffré (AES-256-GCM, clé dérivée du mot de passe par
  *   PBKDF2-SHA-256) si un mot de passe est choisi, à importer dans un autre MonMeeting.
  */
+import { Capacitor } from "@capacitor/core";
 import { saveAs } from "file-saver";
 import { appendAudioChunk, newId, saveMeeting, type Meeting } from "./db.ts";
 
@@ -147,7 +148,37 @@ export async function importMeetingPackage(file: Blob, password?: string): Promi
   return saveMeeting(imported);
 }
 
+/** Vrai dans l'application téléphone (Android / iOS). */
+export const isNativeApp = (): boolean => Capacitor.isNativePlatform();
+
+/** Application téléphone : fichier écrit dans le cache puis feuille de partage du système. */
+async function nativeShare(blob: Blob, filename: string, title: string): Promise<"shared" | "cancelled"> {
+  const [{ Filesystem, Directory }, { Share }] = await Promise.all([
+    import("@capacitor/filesystem"),
+    import("@capacitor/share"),
+  ]);
+  const { uri } = await Filesystem.writeFile({
+    path: filename,
+    data: toBase64(new Uint8Array(await blob.arrayBuffer())),
+    directory: Directory.Cache,
+  });
+  try {
+    await Share.share({ title, files: [uri] });
+    return "shared";
+  } catch (err) {
+    if (err instanceof Error && /cancel/i.test(err.message)) return "cancelled";
+    throw err;
+  }
+}
+
+/** Enregistre un fichier : téléchargement sur le web, feuille de partage dans l'application. */
+export async function saveFile(blob: Blob, filename: string): Promise<void> {
+  if (isNativeApp()) await nativeShare(blob, filename, filename);
+  else saveAs(blob, filename);
+}
+
 export function canShareFiles(): boolean {
+  if (isNativeApp()) return true;
   try {
     return Boolean(
       navigator.canShare?.({ files: [new File([""], "test.txt", { type: "text/plain" })] }),
@@ -166,6 +197,7 @@ export async function shareOrDownload(
   filename: string,
   title: string,
 ): Promise<"shared" | "downloaded" | "cancelled"> {
+  if (isNativeApp()) return nativeShare(blob, filename, title);
   const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
   if (navigator.canShare?.({ files: [file] })) {
     try {

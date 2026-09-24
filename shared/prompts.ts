@@ -3,6 +3,7 @@ import { formatTranscript } from "./transcript.ts";
 import {
   CLASSIFICATION_LABELS,
   type AskRequest,
+  type Attachment,
   type GenerateRequest,
   type MeetingInfo,
   type TranscriptSegment,
@@ -11,10 +12,10 @@ import {
 /** Prompt système stable (mis en cache) : ne dépend d'aucune donnée de la réunion. */
 export const SYSTEM_PROMPT = `Tu es le secrétaire de séance de MonMeeting, spécialiste de la rédaction administrative et institutionnelle en français, au service de responsables sûreté, d'institutions internationales et d'organisations qui suivent des situations sécuritaires.
 
-Ta mission : transformer la transcription d'une réunion en un document professionnel, fidèle et directement exploitable.
+Ta mission : transformer la transcription d'une réunion et/ou les documents sources qui te sont joints en un document professionnel, fidèle et directement exploitable. Lorsqu'il n'y a pas de transcription, le document porte sur la synthèse des pièces jointes.
 
 Règles de fidélité (impératives) :
-- N'invente rien. Chaque fait, chiffre, nom, décision, échéance ou responsable doit provenir de la transcription, des notes du rédacteur ou des informations de la réunion.
+- N'invente rien. Chaque fait, chiffre, nom, décision, échéance ou responsable doit provenir de la transcription, des pièces jointes, des notes du rédacteur ou des informations de la réunion. Cite la pièce jointe d'origine quand c'est utile (« selon le rapport X »).
 - Si une information attendue par la structure du document manque, écris « à préciser » plutôt que de la supposer.
 - Si un passage de la transcription est ambigu, incohérent ou manifestement mal reconnu par la dictée automatique, restitue le sens le plus probable et signale-le par « [à vérifier – mm:ss] » avec l'horodatage de la source.
 - Distingue clairement ce qui a été DÉCIDÉ de ce qui a seulement été PROPOSÉ ou DISCUTÉ.
@@ -47,10 +48,26 @@ const PRESENCE_LABELS = {
 } as const;
 
 /** Bloc de contexte commun : informations de la réunion, transcription et notes. */
+function attachmentsContext(attachments: Attachment[] | undefined): string[] {
+  if (!attachments?.length) return [];
+  const sections: string[] = [];
+  const pdfs = attachments.filter((a) => a.kind === "pdf");
+  if (pdfs.length) {
+    sections.push(
+      `<pieces_jointes_pdf>\nDocuments PDF fournis avec ce message : ${pdfs.map((p) => `« ${p.name} »`).join(", ")}.\n</pieces_jointes_pdf>`,
+    );
+  }
+  for (const a of attachments.filter((x) => x.kind === "text")) {
+    sections.push(`<piece_jointe nom="${a.name.replace(/"/g, "'")}">\n${a.text ?? ""}\n</piece_jointe>`);
+  }
+  return sections;
+}
+
 function meetingContext(
   meeting: MeetingInfo,
   transcript: TranscriptSegment[],
   notes: string | undefined,
+  attachments?: Attachment[],
 ): string[] {
   const participants = meeting.participants.length
     ? meeting.participants
@@ -85,6 +102,7 @@ ${agenda}
   if (notes?.trim()) {
     sections.push(`<notes_du_redacteur>\n${notes.trim()}\n</notes_du_redacteur>`);
   }
+  sections.push(...attachmentsContext(attachments));
   return sections;
 }
 
@@ -92,7 +110,7 @@ export function buildUserPrompt(req: GenerateRequest): string {
   const doc = getDocument(req.type);
   const sections = [
     `<consignes_document>\n${doc.guidelines}\n</consignes_document>`,
-    ...meetingContext(req.meeting, req.transcript, req.notes),
+    ...meetingContext(req.meeting, req.transcript, req.notes, req.attachments),
   ];
   if (req.instructions?.trim()) {
     sections.push(
@@ -103,7 +121,7 @@ export function buildUserPrompt(req: GenerateRequest): string {
   return sections.join("\n\n");
 }
 
-export const ASK_SYSTEM_PROMPT = `Tu es l'assistant de MonMeeting. Tu réponds aux questions d'un utilisateur sur UNE réunion dont la transcription t'est fournie, dans le contexte de la sûreté et de la sécurité.
+export const ASK_SYSTEM_PROMPT = `Tu es l'assistant de MonMeeting. Tu réponds aux questions d'un utilisateur sur UNE réunion dont la transcription et les éventuelles pièces jointes te sont fournies, dans le contexte de la sûreté et de la sécurité.
 
 - Réponds en français, de façon concise et précise.
 - Appuie chaque affirmation sur la transcription en citant l'horodatage entre crochets, par exemple [12:34], et l'intervenant.
@@ -113,17 +131,24 @@ export const ASK_SYSTEM_PROMPT = `Tu es l'assistant de MonMeeting. Tu réponds a
 /** Le contexte de réunion est placé dans le premier message utilisateur (préfixe stable, mis en cache). */
 export function buildAskContext(req: AskRequest): string {
   return [
-    "Voici la réunion sur laquelle porteront mes questions.",
-    ...meetingContext(req.meeting, req.transcript, req.notes),
+    "Voici la réunion (et ses pièces jointes) sur laquelle porteront mes questions.",
+    ...meetingContext(req.meeting, req.transcript, req.notes, req.attachments),
   ].join("\n\n");
+}
+
+function pdfReminder(attachments: Attachment[] | undefined): string {
+  const pdfs = (attachments ?? []).filter((a) => a.kind === "pdf");
+  return pdfs.length
+    ? `\n\n(Joignez aussi à ce message les fichiers PDF : ${pdfs.map((p) => p.name).join(", ")}.)`
+    : "";
 }
 
 /** Demande complète à coller dans Claude.ai (mode gratuit, sans clé API). */
 export function buildManualPrompt(req: GenerateRequest): string {
-  return `${SYSTEM_PROMPT}\n\n---\n\n${buildUserPrompt(req)}`;
+  return `${SYSTEM_PROMPT}\n\n---\n\n${buildUserPrompt(req)}${pdfReminder(req.attachments)}`;
 }
 
 /** Réunion + consignes à coller dans Claude.ai pour poser ses questions (mode gratuit). */
 export function buildAskManualPrompt(req: Omit<AskRequest, "history" | "question">): string {
-  return `${ASK_SYSTEM_PROMPT}\n\n---\n\n${buildAskContext({ ...req, history: [], question: "" })}\n\nConfirme en une phrase que tu as bien reçu la réunion, puis attends mes questions.`;
+  return `${ASK_SYSTEM_PROMPT}\n\n---\n\n${buildAskContext({ ...req, history: [], question: "" })}\n\nConfirme en une phrase que tu as bien reçu la réunion, puis attends mes questions.${pdfReminder(req.attachments)}`;
 }

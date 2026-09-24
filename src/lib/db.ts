@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { DocumentType, MeetingInfo, TranscriptSegment } from "../../shared/types.ts";
+import type { Attachment, DocumentType, MeetingInfo, TranscriptSegment } from "../../shared/types.ts";
 
 export interface GeneratedDocument {
   content: string;
@@ -20,6 +20,8 @@ export interface Meeting {
   audioMime?: string;
   audioChunks: number;
   documents: Partial<Record<DocumentType, GeneratedDocument>>;
+  /** Fichiers sources à synthétiser (absent sur les réunions créées avant cette fonction). */
+  attachments?: Attachment[];
 }
 
 interface MonMeetingDB extends DBSchema {

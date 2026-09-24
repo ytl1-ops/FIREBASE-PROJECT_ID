@@ -1,8 +1,8 @@
-import { saveAs } from "file-saver";
 import { formatTimestamp, formatTranscript } from "../../shared/transcript.ts";
 import { CLASSIFICATION_LABELS } from "../../shared/types.ts";
 import type { Meeting } from "./db.ts";
 import { markdownToHtml } from "./markdown.ts";
+import { saveFile } from "./share.ts";
 
 export function fileSlug(meeting: Meeting, suffix: string): string {
   const date = meeting.info.date.slice(0, 10);
@@ -18,11 +18,11 @@ export function fileSlug(meeting: Meeting, suffix: string): string {
 
 export async function exportDocx(markdown: string, meeting: Meeting, suffix: string) {
   const { buildDocx } = await import("./docx.ts");
-  saveAs(await buildDocx(markdown, meeting), `${fileSlug(meeting, suffix)}.docx`);
+  void saveFile(await buildDocx(markdown, meeting), `${fileSlug(meeting, suffix)}.docx`);
 }
 
 export function exportMarkdown(markdown: string, meeting: Meeting, suffix: string) {
-  saveAs(
+  void saveFile(
     new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
     `${fileSlug(meeting, suffix)}.md`,
   );
@@ -68,16 +68,23 @@ export function transcriptBlob(meeting: Meeting): Blob {
 }
 
 export function exportTranscript(meeting: Meeting) {
-  saveAs(transcriptBlob(meeting), `${fileSlug(meeting, "transcription")}.txt`);
+  void saveFile(transcriptBlob(meeting), `${fileSlug(meeting, "transcription")}.txt`);
 }
 
 export function audioFileName(meeting: Meeting, audio: Blob): string {
-  const ext = audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "m4a" : audio.type.includes("mpeg") ? "mp3" : "webm";
-  return `${fileSlug(meeting, "audio")}.${ext}`;
+  const video = audio.type.startsWith("video/");
+  const ext = audio.type.includes("ogg")
+    ? "ogg"
+    : audio.type.includes("mp4")
+      ? video ? "mp4" : "m4a"
+      : audio.type.includes("mpeg")
+        ? "mp3"
+        : "webm";
+  return `${fileSlug(meeting, video ? "video" : "audio")}.${ext}`;
 }
 
 export async function exportAudio(meeting: Meeting, audio: Blob) {
-  saveAs(audio, audioFileName(meeting, audio));
+  void saveFile(audio, audioFileName(meeting, audio));
 }
 
 export async function docxBlob(markdown: string, meeting: Meeting): Promise<Blob> {

@@ -3,9 +3,11 @@ import { DOCUMENTS, getDocument } from "../../shared/documents.ts";
 import { buildManualPrompt } from "../../shared/prompts.ts";
 import type { DocumentType } from "../../shared/types.ts";
 import { generateDocument, type Health } from "../lib/api.ts";
+import { AttachmentsCard } from "./AttachmentsCard.tsx";
 import type { Meeting } from "../lib/db.ts";
 import { exportDocx, exportMarkdown, printDocument } from "../lib/export.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
+import { isNativeApp } from "../lib/share.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
 export function DocumentsPanel({
@@ -30,7 +32,8 @@ export function DocumentsPanel({
   const def = getDocument(selected);
   const saved = meeting.documents[selected];
   const content = streaming ?? saved?.content ?? "";
-  const hasMaterial = meeting.transcript.some((s) => s.text.trim()) || meeting.notes.trim();
+  const hasMaterial =
+    meeting.transcript.some((s) => s.text.trim()) || meeting.notes.trim() || (meeting.attachments ?? []).length > 0;
   const unmappedVoices = meeting.transcript.some(
     (s) => s.speakerId?.startsWith("Locuteur ") && !meeting.info.participants.some((p) => p.id === s.speakerId),
   );
@@ -49,6 +52,7 @@ export function DocumentsPanel({
           meeting: meeting.info,
           transcript: meeting.transcript,
           notes: meeting.notes,
+          attachments: meeting.attachments,
           instructions,
         },
         setStreaming,
@@ -90,6 +94,7 @@ export function DocumentsPanel({
         meeting: meeting.info,
         transcript: meeting.transcript,
         notes: meeting.notes,
+        attachments: meeting.attachments,
         instructions,
       }),
     );
@@ -129,11 +134,14 @@ export function DocumentsPanel({
         ))}
       </div>
 
+      <AttachmentsCard meeting={meeting} update={update} />
+
       {error && <div className="alert error">{error}</div>}
       {notice && <div className="alert info">{notice}</div>}
       {!hasMaterial && (
         <div className="alert warn">
-          Aucune transcription ni note : enregistrez ou importez la réunion avant de rédiger.
+          Aucune transcription, note ou fichier : enregistrez la réunion ou ajoutez des fichiers à
+          synthétiser.
         </div>
       )}
       {hasMaterial && unmappedVoices && (
@@ -183,7 +191,7 @@ export function DocumentsPanel({
             <>
               <button onClick={() => setEditing((e) => !e)}>{editing ? "Aperçu" : "✎ Modifier"}</button>
               <button onClick={() => void exportDocx(content, meeting, def.short)}>⤓ Word</button>
-              <button onClick={() => printDocument(content, meeting)}>⎙ PDF</button>
+              {!isNativeApp() && <button onClick={() => printDocument(content, meeting)}>⎙ PDF</button>}
               <button onClick={() => exportMarkdown(content, meeting, def.short)}>⤓ Markdown</button>
               <button onClick={() => void copy()}>⧉ Copier</button>
             </>

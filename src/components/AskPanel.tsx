@@ -43,7 +43,12 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
           onClick={() => {
             void navigator.clipboard
               .writeText(
-                buildAskManualPrompt({ meeting: meeting.info, transcript: meeting.transcript, notes: meeting.notes }),
+                buildAskManualPrompt({
+                  meeting: meeting.info,
+                  transcript: meeting.transcript,
+                  notes: meeting.notes,
+                  attachments: meeting.attachments,
+                }),
               )
               .then(() => {
                 setCopied(true);
@@ -71,6 +76,7 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
           meeting: meeting.info,
           transcript: meeting.transcript,
           notes: meeting.notes,
+          attachments: meeting.attachments,
           history,
           question: q,
         },

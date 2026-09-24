@@ -1,10 +1,13 @@
 /**
- * Enregistreur audio longue durée.
- * - Micro seul, ou micro + audio système (onglet de visioconférence) mixés.
+ * Enregistreur audio/vidéo longue durée.
+ * - Audio : micro seul, ou micro + audio système (onglet de visioconférence) mixés.
+ * - Vidéo : caméra + micro, ou écran partagé + micro + audio système.
  * - Fragments émis toutes les `timeslice` ms pour être persistés immédiatement.
  * - Verrou d'écran (Wake Lock) pour éviter la mise en veille pendant la réunion.
  */
-export type CaptureMode = "micro" | "visio";
+export type CaptureMode = "micro" | "visio" | "camera" | "ecran";
+
+export const isVideoMode = (mode: CaptureMode) => mode === "camera" || mode === "ecran";
 
 export interface RecorderCallbacks {
   onChunk: (chunk: Blob, index: number) => void;
@@ -19,9 +22,17 @@ const PREFERRED_MIME = [
   "audio/webm",
 ];
 
-export function pickMimeType(): string | undefined {
+const PREFERRED_VIDEO_MIME = [
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/mp4;codecs=avc1,mp4a.40.2",
+  "video/mp4",
+  "video/webm",
+];
+
+export function pickMimeType(video = false): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  return PREFERRED_MIME.find((m) => MediaRecorder.isTypeSupported(m));
+  return (video ? PREFERRED_VIDEO_MIME : PREFERRED_MIME).find((m) => MediaRecorder.isTypeSupported(m));
 }
 
 export function recordingSupported(): boolean {
@@ -37,6 +48,8 @@ export class MeetingRecorder {
   private chunkIndex: number;
   /** Flux micro seul, utilisé par la reconnaissance vocale d'aperçu. */
   micStream: MediaStream | null = null;
+  /** Flux vidéo en cours (aperçu à l'écran). */
+  videoStream: MediaStream | null = null;
   mimeType = "audio/webm";
 
   constructor(
@@ -51,7 +64,7 @@ export class MeetingRecorder {
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
         channelCount: 1,
-        echoCancellation: mode === "visio",
+        echoCancellation: mode !== "micro",
         noiseSuppression: true,
         autoGainControl: true,
       },
@@ -68,11 +81,21 @@ export class MeetingRecorder {
     micSource.connect(destination);
     micSource.connect(analyser);
 
-    if (mode === "visio") {
-      // Capture de l'audio de l'onglet/écran partagé (Teams, Zoom, Meet dans le navigateur).
+    let videoTrack: MediaStreamTrack | undefined;
+    if (mode === "camera") {
+      const cam = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+      });
+      this.streams.push(cam);
+      videoTrack = cam.getVideoTracks()[0];
+    }
+
+    if (mode === "visio" || mode === "ecran") {
+      // Capture de l'onglet/écran partagé (Teams, Zoom, Meet dans le navigateur).
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       this.streams.push(display);
-      display.getVideoTracks().forEach((t) => t.stop());
+      if (mode === "ecran") videoTrack = display.getVideoTracks()[0];
+      else display.getVideoTracks().forEach((t) => t.stop());
       if (display.getAudioTracks().length === 0) {
         this.callbacks.onError?.(
           "Aucun audio partagé : cochez « Partager l'audio de l'onglet » pour enregistrer les participants distants.",
@@ -86,15 +109,26 @@ export class MeetingRecorder {
       }
     }
 
-    this.mimeType = pickMimeType() ?? "audio/webm";
-    this.recorder = new MediaRecorder(destination.stream, {
+    const tracks = [...destination.stream.getAudioTracks()];
+    if (videoTrack) {
+      tracks.push(videoTrack);
+      this.videoStream = new MediaStream([videoTrack]);
+      // Si l'utilisateur arrête le partage d'écran depuis le navigateur, on le signale.
+      videoTrack.addEventListener("ended", () =>
+        this.callbacks.onError?.("La source vidéo a été interrompue ; l'audio continue d'être enregistré."),
+      );
+    }
+    this.mimeType = pickMimeType(Boolean(videoTrack)) ?? (videoTrack ? "video/webm" : "audio/webm");
+    this.recorder = new MediaRecorder(new MediaStream(tracks), {
       mimeType: this.mimeType,
       audioBitsPerSecond: 64_000,
+      // ≈ 450 Mo par heure : lisible et partageable, sans saturer le stockage du navigateur.
+      ...(videoTrack ? { videoBitsPerSecond: 1_000_000 } : {}),
     });
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.callbacks.onChunk(e.data, this.chunkIndex++);
     };
-    this.recorder.onerror = () => this.callbacks.onError?.("Erreur de l'enregistreur audio.");
+    this.recorder.onerror = () => this.callbacks.onError?.("Erreur de l'enregistreur.");
     this.recorder.start(5000);
 
     const buffer = new Uint8Array(analyser.fftSize);
@@ -151,6 +185,7 @@ export class MeetingRecorder {
     this.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     this.streams = [];
     this.micStream = null;
+    this.videoStream = null;
     void this.audioContext?.close();
     this.audioContext = null;
     void this.wakeLock?.release();

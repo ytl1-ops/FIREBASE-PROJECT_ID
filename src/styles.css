@@ -158,6 +158,7 @@ mark { background: color-mix(in srgb, var(--warning) 35%, transparent); color: i
 .participants-table td { padding: 4px; vertical-align: middle; }
 
 @media (max-width: 640px) {
+  .topbar .status { display: none; }
   .document { padding: 16px; }
   .timer { font-size: 2.3rem; }
   .segment { grid-template-columns: 52px 1fr; }

@@ -23,3 +23,22 @@ describe("buildUserPrompt", () => {
     expect(prompt).toContain("<notes_du_redacteur>\nCheckpoint à Gao.");
   });
 });
+
+describe("pièces jointes", () => {
+  it("intègre le texte et annonce les PDF", async () => {
+    const { buildManualPrompt } = await import("../shared/prompts.ts");
+    const prompt = buildManualPrompt({
+      type: "note_synthese",
+      meeting: { title: "Synthèse", date: "2026-09-24T08:00:00.000Z", agenda: [], participants: [], classification: "non_protege" },
+      transcript: [],
+      attachments: [
+        { id: "1", name: "rapport.docx", size: 10, kind: "text", text: "Hausse des enlèvements." },
+        { id: "2", name: "carte.pdf", size: 10, kind: "pdf", data: "AAAA" },
+      ],
+    });
+    expect(prompt).toContain('<piece_jointe nom="rapport.docx">\nHausse des enlèvements.');
+    expect(prompt).toContain("« carte.pdf »");
+    expect(prompt).toContain("Joignez aussi à ce message les fichiers PDF : carte.pdf");
+    expect(prompt).not.toContain("AAAA");
+  });
+});

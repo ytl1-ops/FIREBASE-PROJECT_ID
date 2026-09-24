@@ -51,11 +51,24 @@ export type DocumentType =
   | "tbm"
   | "releve_decisions";
 
+/** Fichier source joint à la réunion (compte rendu précédent, note, rapport…) à synthétiser. */
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  kind: "text" | "pdf";
+  /** Texte extrait (Word, texte, Markdown). */
+  text?: string;
+  /** Contenu PDF en base64 (lu directement par le modèle, mise en page comprise). */
+  data?: string;
+}
+
 export interface GenerateRequest {
   type: DocumentType;
   meeting: MeetingInfo;
   transcript: TranscriptSegment[];
   notes?: string;
+  attachments?: Attachment[];
   instructions?: string;
 }
 
@@ -69,6 +82,7 @@ export interface AskRequest {
   meeting: MeetingInfo;
   transcript: TranscriptSegment[];
   notes?: string;
+  attachments?: Attachment[];
   history: AskMessage[];
   question: string;
 }

@@ -3,7 +3,7 @@ import { formatTimestamp, speakerName } from "../../shared/transcript.ts";
 import type { TranscriptSegment } from "../../shared/types.ts";
 import { appendAudioChunk, clearAudio, newId, type Meeting } from "../lib/db.ts";
 import { LANGUAGES } from "../lib/meeting.ts";
-import { MeetingRecorder, recordingSupported, type CaptureMode } from "../lib/recorder.ts";
+import { isVideoMode, MeetingRecorder, recordingSupported, type CaptureMode } from "../lib/recorder.ts";
 import { LiveSpeech, liveSpeechSupported } from "../lib/speech.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
@@ -35,6 +35,8 @@ export function RecorderPanel({
   const [justStopped, setJustStopped] = useState(false);
 
   const recorder = useRef<MeetingRecorder | null>(null);
+  const preview = useRef<HTMLVideoElement>(null);
+  const [hasVideo, setHasVideo] = useState(false);
   const live = useRef<LiveSpeech | null>(null);
   const clock = useRef({ startedAt: 0, pausedAt: 0, pausedTotal: 0 });
   const speakerRef = useRef(speaker);
@@ -115,6 +117,11 @@ export function RecorderPanel({
     }
 
     recorder.current = rec;
+    setHasVideo(Boolean(rec.videoStream));
+    if (preview.current && rec.videoStream) {
+      preview.current.srcObject = rec.videoStream;
+      void preview.current.play().catch(() => {});
+    }
     clock.current = { startedAt: Date.now(), pausedAt: 0, pausedTotal: 0 };
     setElapsed(0);
     setStatus("recording");
@@ -153,6 +160,8 @@ export function RecorderPanel({
     const duration = now();
     await recorder.current?.stop();
     recorder.current = null;
+    if (preview.current) preview.current.srcObject = null;
+    setHasVideo(false);
     update((m) => ({ ...m, durationMs: duration }));
     setStatus("idle");
     setLevel(0);
@@ -193,9 +202,17 @@ export function RecorderPanel({
           <div>
             <label htmlFor="mode">Source audio</label>
             <select id="mode" value={mode} onChange={(e) => setMode(e.target.value as CaptureMode)}>
-              <option value="micro">Réunion en salle (microphone)</option>
-              <option value="visio">Visioconférence (micro + audio de l'onglet)</option>
+              <option value="micro">Audio — réunion en salle (microphone)</option>
+              <option value="visio">Audio — visioconférence (micro + son de l'onglet)</option>
+              <option value="camera">Vidéo — caméra + microphone</option>
+              <option value="ecran">Vidéo — écran partagé + micro + son (visio, présentation)</option>
             </select>
+            {isVideoMode(mode) && (
+              <p className="muted small" style={{ margin: "4px 0 0" }}>
+                Environ 450 Mo par heure, stockés dans ce navigateur. La transcription et les
+                documents utilisent la piste audio.
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor="device">Microphone</label>
@@ -231,6 +248,14 @@ export function RecorderPanel({
         </div>
       )}
 
+      <video
+        ref={preview}
+        muted
+        playsInline
+        hidden={!hasVideo}
+        style={{ width: "100%", maxWidth: 480, borderRadius: 10, background: "#000", marginBottom: 8 }}
+      />
+
       <div className="timer">
         {status === "recording" && <span className="rec-dot" />}
         {formatTimestamp(active || status === "stopping" ? elapsed : meeting.durationMs)}
@@ -242,7 +267,7 @@ export function RecorderPanel({
       <div className="row" style={{ justifyContent: "center" }}>
         {status === "idle" && (
           <button className="record" onClick={() => void start()}>
-            ● {meeting.audioChunks > 0 ? "Nouvel enregistrement" : "Démarrer l'enregistrement"}
+            ● {meeting.audioChunks > 0 ? "Nouvel enregistrement" : isVideoMode(mode) ? "Démarrer le film" : "Démarrer l'enregistrement"}
           </button>
         )}
         {active && (

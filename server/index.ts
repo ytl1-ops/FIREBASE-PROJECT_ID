@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessageStream } from "@anthropic-ai/sdk/lib/BetaMessageStream";
-import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import type {
+  BetaContentBlockParam,
+  BetaMessageParam,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import express, { type Response } from "express";
 import multer from "multer";
 import crypto from "node:crypto";
@@ -10,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DOCUMENTS } from "../shared/documents.ts";
-import type { AskRequest, GenerateRequest } from "../shared/types.ts";
+import type { AskRequest, Attachment, GenerateRequest } from "../shared/types.ts";
 import { ASK_SYSTEM_PROMPT, SYSTEM_PROMPT, buildAskContext, buildUserPrompt } from "../shared/prompts.ts";
 import { transcribeFile, transcriptionConfigured } from "./transcription.ts";
 
@@ -27,7 +30,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../dist");
 
 const app = express();
-app.use(express.json({ limit: "10mb" }));
+// Les PDF joints sont transmis en base64 (limite de requête de l'API : 32 Mo).
+app.use(express.json({ limit: "32mb" }));
 
 // Les fichiers audio transitent par un répertoire temporaire et sont supprimés après transcription.
 // L'extension d'origine est conservée : elle sert à identifier le format audio.
@@ -59,10 +63,27 @@ function sendEvent(res: Response, event: Record<string, unknown>) {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-function hasContent(body: { transcript?: { text?: string }[]; notes?: string }): boolean {
+function hasContent(body: {
+  transcript?: { text?: string }[];
+  notes?: string;
+  attachments?: Attachment[];
+}): boolean {
   return (
-    Boolean(body.transcript?.some((s) => s?.text?.trim())) || Boolean(body.notes?.trim())
+    Boolean(body.transcript?.some((s) => s?.text?.trim())) ||
+    Boolean(body.notes?.trim()) ||
+    Boolean(body.attachments?.length)
   );
+}
+
+/** Les PDF joints sont transmis au modèle comme documents (texte et mise en page). */
+function pdfBlocks(attachments: Attachment[] | undefined): BetaContentBlockParam[] {
+  return (attachments ?? [])
+    .filter((a) => a.kind === "pdf" && a.data)
+    .map((a) => ({
+      type: "document",
+      title: a.name,
+      source: { type: "base64", media_type: "application/pdf", data: a.data! },
+    }));
 }
 
 function validateGenerate(body: unknown): GenerateRequest | string {
@@ -71,7 +92,7 @@ function validateGenerate(body: unknown): GenerateRequest | string {
   if (!DOCUMENTS.some((d) => d.type === req.type)) return "Type de document inconnu.";
   if (!req.meeting || typeof req.meeting !== "object") return "Informations de réunion manquantes.";
   if (!Array.isArray(req.transcript)) return "Transcription manquante.";
-  if (!hasContent(req)) return "La transcription et les notes sont vides : rien à rédiger.";
+  if (!hasContent(req)) return "Ni transcription, ni notes, ni fichier joint : rien à rédiger.";
   return req as GenerateRequest;
 }
 
@@ -165,7 +186,17 @@ app.post("/api/generate", async (req, res) => {
     res.status(400).json({ error: parsed });
     return;
   }
-  await streamClaude(res, SYSTEM_PROMPT, [{ role: "user", content: buildUserPrompt(parsed) }], 32000);
+  await streamClaude(
+    res,
+    SYSTEM_PROMPT,
+    [
+      {
+        role: "user",
+        content: [...pdfBlocks(parsed.attachments), { type: "text", text: buildUserPrompt(parsed) }],
+      },
+    ],
+    32000,
+  );
 });
 
 /** « Demandez à votre réunion » : questions-réponses sur la transcription. */
@@ -181,6 +212,7 @@ app.post("/api/ask", async (req, res) => {
       ? {
           role: "user",
           content: [
+            ...pdfBlocks(parsed.attachments),
             // Le contexte de la réunion est identique d'une question à l'autre : mis en cache.
             { type: "text", text: buildAskContext(parsed), cache_control: { type: "ephemeral" } },
             { type: "text", text: turn.content },

@@ -47,7 +47,8 @@ export function TranscriptPanel({
   const job = useRef<LocalJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const player = useRef<HTMLAudioElement>(null);
+  const player = useRef<HTMLMediaElement>(null);
+  const isVideo = (meeting.audioMime ?? "").startsWith("video/");
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -242,24 +243,31 @@ export function TranscriptPanel({
 
       <div className="card">
         {audioUrl ? (
-          <audio
-            ref={player}
-            src={audioUrl}
-            controls
-            style={{ width: "100%" }}
-            onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
-            onLoadedMetadata={(e) => {
-              // Les WebM de MediaRecorder n'annoncent pas leur durée : on force son calcul.
-              const el = e.currentTarget;
-              if (el.duration === Infinity) {
-                el.currentTime = 1e9;
-                el.addEventListener("durationchange", () => (el.currentTime = 0), { once: true });
-              }
-            }}
-          />
+          (() => {
+            const props = {
+              src: audioUrl,
+              controls: true,
+              style: { width: "100%", maxHeight: 420, borderRadius: 10 },
+              onTimeUpdate: (e: React.SyntheticEvent<HTMLMediaElement>) =>
+                setCurrentMs(e.currentTarget.currentTime * 1000),
+              onLoadedMetadata: (e: React.SyntheticEvent<HTMLMediaElement>) => {
+                // Les WebM de MediaRecorder n'annoncent pas leur durée : on force son calcul.
+                const el = e.currentTarget;
+                if (el.duration === Infinity) {
+                  el.currentTime = 1e9;
+                  el.addEventListener("durationchange", () => (el.currentTime = 0), { once: true });
+                }
+              },
+            };
+            return isVideo ? (
+              <video ref={player as React.RefObject<HTMLVideoElement>} playsInline {...props} />
+            ) : (
+              <audio ref={player as React.RefObject<HTMLAudioElement>} {...props} />
+            );
+          })()
         ) : (
           <p className="muted small" style={{ margin: 0 }}>
-            {recording ? "Enregistrement en cours…" : "Aucun audio pour cette réunion."}
+            {recording ? "Enregistrement en cours…" : "Aucun enregistrement pour cette réunion."}
           </p>
         )}
 
@@ -436,7 +444,7 @@ export function TranscriptPanel({
               ⤓ Texte
             </button>
             <button disabled={!audio} onClick={() => audio && void exportAudio(meeting, audio)}>
-              ⤓ Audio
+              ⤓ {isVideo ? "Vidéo" : "Audio"}
             </button>
             <input
               ref={fileInput}

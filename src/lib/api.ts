@@ -95,7 +95,9 @@ export async function transcribeAudio(
   audio: Blob,
   options: { languages: string[]; speakers?: number; vocabulary: string[] },
 ): Promise<TranscriptionResponse> {
-  const ext = audio.type.includes("ogg")
+  const ext = audio.type.startsWith("video/")
+    ? audio.type.includes("mp4") ? "mp4" : "webm"
+    : audio.type.includes("ogg")
     ? "ogg"
     : audio.type.includes("mp4") || audio.type.includes("m4a")
       ? "m4a"
