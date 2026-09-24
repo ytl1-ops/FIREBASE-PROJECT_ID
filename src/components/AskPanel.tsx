@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
+import { buildAskManualPrompt } from "../../shared/prompts.ts";
 import type { AskMessage } from "../../shared/types.ts";
-import { askMeeting } from "../lib/api.ts";
+import { askMeeting, type Health } from "../lib/api.ts";
 import type { Meeting } from "../lib/db.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
 
@@ -13,7 +14,7 @@ const SUGGESTIONS = [
   "Résume la position de chaque intervenant.",
 ];
 
-export function AskPanel({ meeting }: { meeting: Meeting }) {
+export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health | null }) {
   const [history, setHistory] = useState<AskMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
@@ -21,6 +22,41 @@ export function AskPanel({ meeting }: { meeting: Meeting }) {
   const abort = useRef<AbortController | null>(null);
 
   const busy = answer !== null;
+  const [copied, setCopied] = useState(false);
+
+  // Sans clé API (mode autonome) : on copie la réunion pour l'interroger dans Claude.ai.
+  if (!health?.apiKeyConfigured) {
+    return (
+      <div className="card">
+        <h2>Demandez à votre réunion</h2>
+        <p className="muted">
+          Mode gratuit : copiez la réunion, collez-la dans une conversation Claude.ai, puis posez
+          vos questions. Exemples :
+        </p>
+        <ul className="small">
+          {SUGGESTIONS.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ul>
+        <button
+          className="primary"
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(
+                buildAskManualPrompt({ meeting: meeting.info, transcript: meeting.transcript, notes: meeting.notes }),
+              )
+              .then(() => {
+                setCopied(true);
+                window.open("https://claude.ai/new", "_blank", "noopener");
+              });
+          }}
+        >
+          ⧉ Copier la réunion et ouvrir Claude.ai
+        </button>
+        {copied && <p className="muted small">Copié : collez (Ctrl+V) dans Claude.ai.</p>}
+      </div>
+    );
+  }
 
   async function ask(text: string) {
     const q = text.trim();

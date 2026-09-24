@@ -47,7 +47,7 @@ export function App() {
           {health === undefined
             ? ""
             : health === null
-              ? "Serveur injoignable — enregistrement local uniquement"
+              ? "Mode autonome — transcription sur l'appareil, rédaction via Claude.ai"
               : `Rédaction : ${health.apiKeyConfigured ? "active" : "clé API manquante"} · Transcription HD : ${
                   health.transcriptionConfigured ? "active" : "non configurée"
                 }`}

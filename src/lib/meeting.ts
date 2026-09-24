@@ -25,15 +25,16 @@ export function newParticipant(name = ""): Participant {
   return { id: newId("p-"), name, presence: "present" };
 }
 
-export const LANGUAGES: { code: string; label: string; speech: string }[] = [
-  { code: "fr", label: "Français", speech: "fr-FR" },
-  { code: "en", label: "Anglais", speech: "en-GB" },
-  { code: "ar", label: "Arabe", speech: "ar-SA" },
-  { code: "es", label: "Espagnol", speech: "es-ES" },
-  { code: "pt", label: "Portugais", speech: "pt-PT" },
-  { code: "de", label: "Allemand", speech: "de-DE" },
-  { code: "it", label: "Italien", speech: "it-IT" },
-  { code: "ru", label: "Russe", speech: "ru-RU" },
-  { code: "uk", label: "Ukrainien", speech: "uk-UA" },
-  { code: "zh", label: "Chinois", speech: "zh-CN" },
+/** `whisper` : nom de langue attendu par Whisper pour la transcription locale. */
+export const LANGUAGES: { code: string; label: string; speech: string; whisper: string }[] = [
+  { code: "fr", whisper: "french", label: "Français", speech: "fr-FR" },
+  { code: "en", whisper: "english", label: "Anglais", speech: "en-GB" },
+  { code: "ar", whisper: "arabic", label: "Arabe", speech: "ar-SA" },
+  { code: "es", whisper: "spanish", label: "Espagnol", speech: "es-ES" },
+  { code: "pt", whisper: "portuguese", label: "Portugais", speech: "pt-PT" },
+  { code: "de", whisper: "german", label: "Allemand", speech: "de-DE" },
+  { code: "it", whisper: "italian", label: "Italien", speech: "it-IT" },
+  { code: "ru", whisper: "russian", label: "Russe", speech: "ru-RU" },
+  { code: "uk", whisper: "ukrainian", label: "Ukrainien", speech: "uk-UA" },
+  { code: "zh", whisper: "chinese", label: "Chinois", speech: "zh-CN" },
 ];

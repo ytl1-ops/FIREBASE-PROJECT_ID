@@ -142,9 +142,10 @@ export function DocumentsPanel({
           les propos leur seront attribués sous la forme « Locuteur N ».
         </div>
       )}
-      {health && !health.apiKeyConfigured && (
-        <div className="alert warn">
-          Rédaction indisponible : la clé ANTHROPIC_API_KEY n'est pas configurée sur le serveur.
+      {!health?.apiKeyConfigured && (
+        <div className="alert info">
+          Rédaction automatique non configurée : utilisez <strong>« Mode gratuit (Claude.ai) »</strong>
+          — la demande est copiée, vous la collez dans Claude.ai puis recollez le document ici.
         </div>
       )}
 
@@ -161,7 +162,7 @@ export function DocumentsPanel({
           {streaming === null ? (
             <button
               className="primary"
-              disabled={!hasMaterial || health?.apiKeyConfigured === false}
+              disabled={!hasMaterial || !health?.apiKeyConfigured}
               onClick={() => void generate()}
             >
               ✦ {saved ? "Régénérer" : "Rédiger"} le {def.label.toLowerCase()}

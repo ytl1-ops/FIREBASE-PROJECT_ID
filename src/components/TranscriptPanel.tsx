@@ -4,6 +4,8 @@ import type { TranscriptSegment } from "../../shared/types.ts";
 import { transcribeAudio, type Health } from "../lib/api.ts";
 import { getAudio, newId, type Meeting } from "../lib/db.ts";
 import { exportAudio, exportTranscript } from "../lib/export.ts";
+import { decodeAudio, runLocalTranscription, type LocalJob } from "../lib/local/index.ts";
+import { LOCAL_MODELS } from "../lib/local/protocol.ts";
 import { LANGUAGES, newParticipant } from "../lib/meeting.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
@@ -39,6 +41,10 @@ export function TranscriptPanel({
     ].join(", "),
   );
   const [busy, setBusy] = useState(false);
+  const [engine, setEngine] = useState<"local" | "gladia">("local");
+  const [localModel, setLocalModel] = useState<string>(LOCAL_MODELS[1].id);
+  const [progress, setProgress] = useState<{ label: string; value: number } | null>(null);
+  const job = useRef<LocalJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const player = useRef<HTMLAudioElement>(null);
@@ -114,46 +120,94 @@ export function TranscriptPanel({
     void player.current.play();
   }
 
+  function applyTranscription(result: { start: number; end: number; speaker: string; text: string }[]) {
+    const segments: TranscriptSegment[] = result.map((seg) => ({
+      id: newId("s-"),
+      start: seg.start,
+      end: seg.end,
+      speakerId: seg.speaker,
+      text: seg.text,
+      kind: "speech",
+    }));
+    setSegments((old) =>
+      sortSegments([...old.filter((x) => x.kind === "note" || x.kind === "bookmark"), ...segments]),
+    );
+    const distinct = new Set(result.map((x) => x.speaker)).size;
+    setInfo(
+      `Transcription terminée : ${segments.length} interventions, ${distinct} voix distincte(s).${
+        distinct > 1 ? " Associez chaque voix à un participant ci-dessous." : ""
+      }`,
+    );
+  }
+
   async function runTranscription() {
     if (!audio) return;
     const hasSpeech = meeting.transcript.some((s) => (s.kind ?? "speech") === "speech");
     if (
       hasSpeech &&
       !window.confirm(
-        "La transcription existante (hors notes et marque-pages) sera remplacée par la transcription haute fidélité. Continuer ?",
+        "La transcription existante (hors notes et marque-pages) sera remplacée. Continuer ?",
       )
     ) {
       return;
     }
     setBusy(true);
     setError(null);
-    setInfo("Transcription en cours… comptez environ 1 minute pour 30 minutes d'audio.");
     try {
-      const result = await transcribeAudio(audio, {
-        languages,
-        speakers: Number(speakers) || undefined,
-        vocabulary: vocabulary.split(/[,\n;]/),
-      });
-      const segments: TranscriptSegment[] = result.segments.map((s) => ({
-        id: newId("s-"),
-        start: s.start,
-        end: s.end,
-        speakerId: s.speaker,
-        text: s.text,
-        kind: "speech",
-      }));
-      setSegments((old) => sortSegments([...old.filter((s) => s.kind === "note" || s.kind === "bookmark"), ...segments]));
-      const distinct = new Set(result.segments.map((s) => s.speaker)).size;
-      setInfo(
-        `Transcription terminée : ${segments.length} interventions, ${distinct} voix distinctes. Associez chaque voix à un participant ci-dessous.`,
-      );
+      if (engine === "gladia") {
+        setInfo("Transcription en cours… comptez environ 1 minute pour 30 minutes d'audio.");
+        const result = await transcribeAudio(audio, {
+          languages,
+          speakers: Number(speakers) || undefined,
+          vocabulary: vocabulary.split(/[,\n;]/),
+        });
+        applyTranscription(result.segments);
+      } else {
+        setInfo(
+          "Transcription sur cet appareil : le premier usage télécharge le modèle (une seule fois). Gardez cet onglet ouvert.",
+        );
+        setProgress({ label: "Préparation de l'audio", value: 0 });
+        const samples = await decodeAudio(audio);
+        const lang = LANGUAGES.find((l) => l.code === languages[0]);
+        job.current = runLocalTranscription(
+          samples,
+          {
+            model: localModel,
+            language: lang?.whisper,
+            speakers: Number(speakers) || undefined,
+            diarize: Number(speakers) !== 1,
+          },
+          (msg) => {
+            if (msg.type === "progress") setProgress({ label: msg.label, value: msg.progress });
+          },
+        );
+        const { segments, device } = await job.current.result;
+        applyTranscription(
+          segments.map((x) => ({
+            start: Math.round(x.start * 1000),
+            end: Math.round(x.end * 1000),
+            speaker: `Locuteur ${x.speaker + 1}`,
+            text: x.text,
+          })),
+        );
+        if (device === "wasm") {
+          setInfo((cur) => `${cur ?? ""} (Calcul sur processeur : activez WebGPU dans Chrome/Edge pour aller plus vite.)`);
+        }
+      }
     } catch (err) {
       setInfo(null);
-      setError(err instanceof Error ? err.message : String(err));
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setBusy(false);
+      setProgress(null);
+      job.current = null;
     }
   }
+
+  // Arrête le moteur local si l'on quitte l'onglet.
+  useEffect(() => () => job.current?.cancel(), []);
 
   async function importFile(file: File) {
     const { segments } = parseTranscriptFile(await file.text());
@@ -212,17 +266,41 @@ export function TranscriptPanel({
         {audio && !recording && (
           <details style={{ marginTop: 14 }} open={!meeting.transcript.some((s) => s.end !== undefined)}>
             <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-              Transcription haute fidélité avec identification des intervenants
+              Transcription complète avec identification des intervenants
             </summary>
-            {!health?.transcriptionConfigured && (
-              <div className="alert warn" style={{ marginTop: 10 }}>
-                Service non configuré sur le serveur (variable GLADIA_API_KEY). Vous pouvez
-                néanmoins utiliser l'aperçu en direct ou importer une transcription.
-              </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button
+                className={`chip ${engine === "local" ? "active" : ""}`}
+                onClick={() => setEngine("local")}
+                disabled={busy}
+              >
+                Sur cet appareil — gratuit, hors ligne
+              </button>
+              <button
+                className={`chip ${engine === "gladia" ? "active" : ""}`}
+                onClick={() => setEngine("gladia")}
+                disabled={busy}
+              >
+                Service Gladia — serveur
+              </button>
+            </div>
+            {engine === "local" ? (
+              <p className="muted small">
+                🔒 L'audio ne quitte pas votre appareil. Le modèle Whisper est téléchargé au premier
+                usage puis conservé par le navigateur. Durée indicative : de l'ordre du temps réel sur
+                processeur, bien plus rapide avec une carte graphique (Chrome/Edge).
+              </p>
+            ) : (
+              !health?.transcriptionConfigured && (
+                <div className="alert warn" style={{ marginTop: 10 }}>
+                  Service non configuré sur le serveur (variable GLADIA_API_KEY). Utilisez la
+                  transcription sur cet appareil, gratuite.
+                </div>
+              )
             )}
             <div className="grid-3" style={{ marginTop: 10 }}>
               <div>
-                <label>Langue(s) parlée(s)</label>
+                <label>Langue{engine === "gladia" ? "(s)" : ""} parlée{engine === "gladia" ? "(s)" : ""}</label>
                 <div className="row" style={{ gap: 4 }}>
                   {LANGUAGES.map((l) => (
                     <button
@@ -230,7 +308,13 @@ export function TranscriptPanel({
                       className={`chip ${languages.includes(l.code) ? "active" : ""}`}
                       onClick={() =>
                         setLanguages((cur) =>
-                          cur.includes(l.code) ? cur.filter((c) => c !== l.code) : [...cur, l.code],
+                          engine === "local"
+                            ? cur[0] === l.code
+                              ? []
+                              : [l.code]
+                            : cur.includes(l.code)
+                              ? cur.filter((c) => c !== l.code)
+                              : [...cur, l.code],
                         )
                       }
                     >
@@ -251,26 +335,52 @@ export function TranscriptPanel({
                   placeholder="Automatique"
                   onChange={(e) => setSpeakers(e.target.value)}
                 />
-                <p className="muted small">Le préciser améliore la séparation des voix.</p>
+                <p className="muted small">Le préciser améliore nettement la séparation des voix.</p>
               </div>
-              <div>
-                <label htmlFor="vocab">Vocabulaire spécifique</label>
-                <textarea
-                  id="vocab"
-                  rows={3}
-                  value={vocabulary}
-                  placeholder="Noms, sigles, lieux : OSCE, Tombouctou, JNIM…"
-                  onChange={(e) => setVocabulary(e.target.value)}
-                />
-              </div>
+              {engine === "local" ? (
+                <div>
+                  <label htmlFor="local-model">Qualité</label>
+                  <select id="local-model" value={localModel} onChange={(e) => setLocalModel(e.target.value)}>
+                    {LOCAL_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label} — {m.detail}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="vocab">Vocabulaire spécifique</label>
+                  <textarea
+                    id="vocab"
+                    rows={3}
+                    value={vocabulary}
+                    placeholder="Noms, sigles, lieux : OSCE, Tombouctou, JNIM…"
+                    onChange={(e) => setVocabulary(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
-            <button
-              className="primary"
-              disabled={busy || !health?.transcriptionConfigured}
-              onClick={() => void runTranscription()}
-            >
-              {busy ? "Transcription en cours…" : "Lancer la transcription"}
-            </button>
+            {progress && (
+              <div style={{ margin: "8px 0" }}>
+                <div className="small muted">
+                  {progress.label} — {Math.round(progress.value * 100)} %
+                </div>
+                <div className="meter" style={{ maxWidth: "none", margin: "4px 0" }}>
+                  <div style={{ width: `${progress.value * 100}%`, background: "var(--accent)" }} />
+                </div>
+              </div>
+            )}
+            <div className="row">
+              <button
+                className="primary"
+                disabled={busy || (engine === "gladia" && !health?.transcriptionConfigured)}
+                onClick={() => void runTranscription()}
+              >
+                {busy ? "Transcription en cours…" : "Lancer la transcription"}
+              </button>
+              {busy && engine === "local" && <button onClick={() => job.current?.cancel()}>Annuler</button>}
+            </div>
           </details>
         )}
       </div>

@@ -54,7 +54,7 @@ ${markdownToHtml(markdown)}
   setTimeout(() => win.print(), 400);
 }
 
-export function exportTranscript(meeting: Meeting) {
+export function transcriptBlob(meeting: Meeting): Blob {
   const header = [
     meeting.info.title,
     new Date(meeting.info.date).toLocaleString("fr-FR"),
@@ -62,15 +62,25 @@ export function exportTranscript(meeting: Meeting) {
     `Durée : ${formatTimestamp(meeting.durationMs)}`,
     "",
   ].join("\n");
-  saveAs(
-    new Blob([header + formatTranscript(meeting.transcript, meeting.info.participants)], {
-      type: "text/plain;charset=utf-8",
-    }),
-    `${fileSlug(meeting, "transcription")}.txt`,
-  );
+  return new Blob([header + formatTranscript(meeting.transcript, meeting.info.participants)], {
+    type: "text/plain;charset=utf-8",
+  });
+}
+
+export function exportTranscript(meeting: Meeting) {
+  saveAs(transcriptBlob(meeting), `${fileSlug(meeting, "transcription")}.txt`);
+}
+
+export function audioFileName(meeting: Meeting, audio: Blob): string {
+  const ext = audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "m4a" : audio.type.includes("mpeg") ? "mp3" : "webm";
+  return `${fileSlug(meeting, "audio")}.${ext}`;
 }
 
 export async function exportAudio(meeting: Meeting, audio: Blob) {
-  const ext = audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "m4a" : "webm";
-  saveAs(audio, `${fileSlug(meeting, "audio")}.${ext}`);
+  saveAs(audio, audioFileName(meeting, audio));
+}
+
+export async function docxBlob(markdown: string, meeting: Meeting): Promise<Blob> {
+  const { buildDocx } = await import("./docx.ts");
+  return buildDocx(markdown, meeting);
 }

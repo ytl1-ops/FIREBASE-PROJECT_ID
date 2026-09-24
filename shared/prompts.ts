@@ -122,3 +122,8 @@ export function buildAskContext(req: AskRequest): string {
 export function buildManualPrompt(req: GenerateRequest): string {
   return `${SYSTEM_PROMPT}\n\n---\n\n${buildUserPrompt(req)}`;
 }
+
+/** Réunion + consignes à coller dans Claude.ai pour poser ses questions (mode gratuit). */
+export function buildAskManualPrompt(req: Omit<AskRequest, "history" | "question">): string {
+  return `${ASK_SYSTEM_PROMPT}\n\n---\n\n${buildAskContext({ ...req, history: [], question: "" })}\n\nConfirme en une phrase que tu as bien reçu la réunion, puis attends mes questions.`;
+}

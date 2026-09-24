@@ -6,6 +6,7 @@ import { AskPanel } from "../components/AskPanel.tsx";
 import { DocumentsPanel } from "../components/DocumentsPanel.tsx";
 import { MeetingInfoForm } from "../components/MeetingInfoForm.tsx";
 import { RecorderPanel } from "../components/RecorderPanel.tsx";
+import { SharePanel } from "../components/SharePanel.tsx";
 import { TranscriptPanel } from "../components/TranscriptPanel.tsx";
 import type { Health } from "../lib/api.ts";
 import { deleteMeeting, getMeeting, saveMeeting, type Meeting } from "../lib/db.ts";
@@ -15,6 +16,7 @@ const TABS = [
   { id: "transcription", label: "Transcription" },
   { id: "documents", label: "Documents" },
   { id: "questions", label: "Demander" },
+  { id: "partager", label: "Partager" },
   { id: "informations", label: "Informations" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -129,7 +131,8 @@ export function MeetingPage({
         <TranscriptPanel meeting={meeting} update={update} health={health} recording={recording} />
       )}
       {tab === "documents" && <DocumentsPanel meeting={meeting} update={update} health={health} />}
-      {tab === "questions" && <AskPanel meeting={meeting} />}
+      {tab === "questions" && <AskPanel meeting={meeting} health={health} />}
+      {tab === "partager" && <SharePanel meeting={meeting} />}
       {tab === "informations" && (
         <div className="card">
           <MeetingInfoForm info={meeting.info} onChange={(info) => update((m) => ({ ...m, info }))} />

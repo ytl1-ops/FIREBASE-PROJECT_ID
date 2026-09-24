@@ -5,6 +5,7 @@ import { CLASSIFICATION_LABELS } from "../../shared/types.ts";
 import { navigate } from "../App.tsx";
 import { appendAudioChunk, createMeeting, listMeetings, saveMeeting, type Meeting } from "../lib/db.ts";
 import { defaultMeetingInfo } from "../lib/meeting.ts";
+import { importMeetingPackage, PasswordRequiredError } from "../lib/share.ts";
 
 function audioDuration(file: Blob): Promise<number> {
   return new Promise((resolve) => {
@@ -24,6 +25,26 @@ export function HomePage() {
   const [meetings, setMeetings] = useState<Meeting[] | null>(null);
   const [query, setQuery] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const packageInput = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function importPackage(file: File) {
+    setError(null);
+    try {
+      let meeting;
+      try {
+        meeting = await importMeetingPackage(file);
+      } catch (err) {
+        if (!(err instanceof PasswordRequiredError)) throw err;
+        const password = window.prompt("Ce fichier est chiffré. Mot de passe :");
+        if (!password) return;
+        meeting = await importMeetingPackage(file, password);
+      }
+      navigate(`/reunion/${meeting.id}?onglet=transcription`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   useEffect(() => {
     void listMeetings().then(setMeetings);
@@ -63,7 +84,19 @@ export function HomePage() {
             </p>
           </div>
           <div className="row">
+            <button onClick={() => packageInput.current?.click()}>⤒ Importer une réunion</button>
             <button onClick={() => fileInput.current?.click()}>⤒ Importer un audio</button>
+            <input
+              ref={packageInput}
+              type="file"
+              accept=".monmeeting,application/json"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importPackage(file);
+                e.target.value = "";
+              }}
+            />
             <button className="primary" onClick={() => navigate("/nouvelle")}>
               ● Nouvelle réunion
             </button>
@@ -81,6 +114,7 @@ export function HomePage() {
         </div>
       </div>
 
+      {error && <div className="alert error">{error}</div>}
       <div className="card">
         <input
           type="search"

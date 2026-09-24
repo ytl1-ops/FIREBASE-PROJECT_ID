@@ -9,11 +9,13 @@
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:web": "vite build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@gladiaio/sdk": "^2.1.0",
+    "@huggingface/transformers": "^4.3.0",
     "docx": "^9.7.2",
     "express": "^5.2.1",
     "file-saver": "^2.0.5",
