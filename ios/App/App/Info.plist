@@ -6,6 +6,8 @@
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>NSCameraUsageDescription</key>
+	<string>MonMeeting utilise la caméra pour filmer vos réunions.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MonMeeting utilise le microphone pour enregistrer vos réunions.</string>
 	<key>CFBundleDisplayName</key>
