@@ -70,7 +70,7 @@ Dans l'application téléphone, micro, caméra et partage passent par les foncti
 
 Le site est publié depuis la branche `gh-pages` (GitHub Pages activé sur cette branche). Après une
 modification du code : `npm run build:pages`, puis publiez le contenu de `docs/` sur `gh-pages`
-(par exemple `git subtree push --prefix docs origin gh-pages`).
+(par exemple `npx gh-pages -d docs --dotfiles`).
 
 ## Partager l'application avec un cercle restreint
 
