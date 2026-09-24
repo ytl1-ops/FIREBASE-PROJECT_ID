@@ -1,5 +1,11 @@
 # MonMeeting
 
+### ▶ [Ouvrir l'application](https://ytl1-ops.github.io/FIREBASE-PROJECT_ID/) — https://ytl1-ops.github.io/FIREBASE-PROJECT_ID/
+
+Aucun compte ni installation : ouvrez le lien dans Chrome, Edge ou Safari (ordinateur ou
+téléphone). Sur téléphone, « Ajouter à l'écran d'accueil » installe l'application.
+Vos réunions restent enregistrées dans votre propre navigateur.
+
 Application web (installable sur ordinateur et mobile) pour **enregistrer fidèlement vos réunions**
 et en tirer des documents professionnels en français : **procès-verbal, compte rendu, note de
 synthèse, TBM (Tool Box Meeting / causerie sûreté) et relevé de décisions**.
@@ -59,6 +65,12 @@ L'hébergement reste gratuit : sur votre ordinateur, ou en ligne en version auto
 
 Dans l'application téléphone, micro, caméra et partage passent par les fonctions natives
 (feuille de partage Android/iOS).
+
+## Mise à jour du lien GitHub Pages
+
+Le site publié est le dossier `docs/`. Après une modification du code : `npm run build:pages`,
+puis commit et push. Réglage GitHub (une seule fois) : *Settings → Pages → Build and
+deployment → Source : Deploy from a branch*, branche de travail, dossier `/docs`.
 
 ## Partager l'application avec un cercle restreint
 

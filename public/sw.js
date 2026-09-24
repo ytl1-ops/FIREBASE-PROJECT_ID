@@ -1,9 +1,13 @@
 // Service worker MonMeeting : application utilisable hors ligne une fois installée.
 // - pages : réseau d'abord (mises à jour immédiates), cache en secours ;
-// - fichiers versionnés (/assets/) : cache d'abord.
+// - fichiers versionnés (assets/) : cache d'abord.
 // Les appels /api/ et les ressources externes ne sont jamais mis en cache.
-const CACHE = "monmeeting-v1";
-const SHELL = ["/", "/index.html", "/icon.svg", "/manifest.webmanifest"];
+// Les chemins sont relatifs à l'emplacement du service worker (racine ou sous-dossier).
+const CACHE = "monmeeting-v2";
+const scope = new URL("./", self.location.href);
+const at = (path) => new URL(path, scope).href;
+const INDEX = at("index.html");
+const SHELL = [at(""), INDEX, at("icon.svg"), at("manifest.webmanifest")];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -21,7 +25,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
+  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.includes("/api/")) {
     return;
   }
 
@@ -30,10 +34,10 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put("/index.html", copy));
+          caches.open(CACHE).then((cache) => cache.put(INDEX, copy));
           return response;
         })
-        .catch(() => caches.match("/index.html")),
+        .catch(() => caches.match(INDEX)),
     );
     return;
   }
@@ -43,7 +47,7 @@ self.addEventListener("fetch", (event) => {
       (cached) =>
         cached ||
         fetch(request).then((response) => {
-          if (response.ok && (url.pathname.startsWith("/assets/") || SHELL.includes(url.pathname))) {
+          if (response.ok && (url.href.startsWith(at("assets/")) || SHELL.includes(url.href))) {
             const copy = response.clone();
             caches.open(CACHE).then((cache) => cache.put(request, copy));
           }

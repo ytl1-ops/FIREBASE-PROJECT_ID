@@ -10,7 +10,8 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "build:web": "vite build"
+    "build:web": "vite build",
+    "build:pages": "vite build --outDir docs --emptyOutDir && touch docs/.nojekyll"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

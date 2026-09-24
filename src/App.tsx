@@ -39,7 +39,7 @@ export function App() {
     <>
       <header className="topbar">
         <a href="#/">
-          <img src="/icon.svg" alt="" width={26} height={26} />
+          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" width={26} height={26} />
           MonMeeting
         </a>
         <span className="spacer" />
