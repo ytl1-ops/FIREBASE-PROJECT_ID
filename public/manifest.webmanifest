@@ -1,0 +1,17 @@
+{
+  "name": "MonMeeting",
+  "short_name": "MonMeeting",
+  "description": "Enregistrement des réunions et rédaction de PV, comptes rendus, notes de synthèse et TBM",
+  "lang": "fr",
+  "start_url": "./", "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "categories": ["productivity", "business"],
+  "background_color": "#f6f7f9",
+  "theme_color": "#0f2a44",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

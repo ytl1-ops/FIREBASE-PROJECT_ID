@@ -1,0 +1,49 @@
+{
+  "name": "monmeeting",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MonMeeting — enregistrement fidèle des réunions et rédaction assistée de PV, comptes rendus, notes de synthèse et TBM",
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"tsx watch server/index.ts\"",
+    "build": "tsc -b && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "build:web": "vite build",
+    "build:pages": "vite build --outDir docs --emptyOutDir && touch docs/.nojekyll"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capacitor/share": "^8.0.2",
+    "@gladiaio/sdk": "^2.1.0",
+    "@huggingface/transformers": "^4.3.0",
+    "docx": "^9.7.2",
+    "express": "^5.2.1",
+    "file-saver": "^2.0.5",
+    "idb": "^8.0.3",
+    "mammoth": "^1.12.3",
+    "multer": "^2.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@types/express": "^5.0.6",
+    "@types/file-saver": "^2.0.7",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.1"
+  }
+}

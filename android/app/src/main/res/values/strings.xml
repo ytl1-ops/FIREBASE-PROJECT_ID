@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MonMeeting</string>
+    <string name="title_activity_main">MonMeeting</string>
+    <string name="package_name">app.monmeeting</string>
+    <string name="custom_url_scheme">app.monmeeting</string>
+</resources>

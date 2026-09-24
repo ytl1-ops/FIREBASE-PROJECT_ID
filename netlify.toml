@@ -1,0 +1,24 @@
+# Publication de la version autonome (sans serveur) : transcription sur l'appareil,
+# rédaction via Claude.ai. Aucune donnée de réunion n'est stockée sur l'hébergeur.
+[build]
+  command = "npm run build:web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Les binaires serveur d'onnxruntime sont inutiles : Whisper tourne dans le navigateur.
+  NPM_FLAGS = "--ignore-scripts"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "microphone=(self), display-capture=(self), camera=()"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
