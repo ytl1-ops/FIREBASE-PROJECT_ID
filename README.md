@@ -68,9 +68,9 @@ Dans l'application téléphone, micro, caméra et partage passent par les foncti
 
 ## Mise à jour du lien GitHub Pages
 
-Le site publié est le dossier `docs/`. Après une modification du code : `npm run build:pages`,
-puis commit et push. Réglage GitHub (une seule fois) : *Settings → Pages → Build and
-deployment → Source : Deploy from a branch*, branche de travail, dossier `/docs`.
+Le site est publié depuis la branche `gh-pages` (GitHub Pages activé sur cette branche). Après une
+modification du code : `npm run build:pages`, puis publiez le contenu de `docs/` sur `gh-pages`
+(par exemple `git subtree push --prefix docs origin gh-pages`).
 
 ## Partager l'application avec un cercle restreint
 
