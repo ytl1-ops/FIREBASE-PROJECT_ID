@@ -12,10 +12,11 @@ le navigateur, rédaction qui n'invente rien et signale les passages à vérifie
 
 | Étape | Ce que fait MonMeeting |
 |---|---|
-| **Enregistrer** | Micro (réunion en salle) ou micro + audio de l'onglet (Teams, Zoom, Meet). Sauvegarde toutes les 5 s (une coupure ne fait pas perdre la réunion), pause/reprise, écran maintenu allumé, choix du micro, vumètre. |
+| **Enregistrer** | Audio : micro (réunion en salle) ou micro + son de l'onglet (Teams, Zoom, Meet). **Film** : caméra + micro, ou écran partagé + micro + son. Sauvegarde toutes les 5 s (une coupure ne fait pas perdre la réunion), pause/reprise, écran maintenu allumé, choix du micro, vumètre. |
 | **Annoter** | Notes horodatées et marque-pages ★ en un clic pendant la réunion ; intervenant en cours sélectionnable. |
 | **Transcrire** | Aperçu en direct (reconnaissance vocale du navigateur), puis **transcription complète avec séparation des voix** : soit **sur l'appareil, gratuitement et hors ligne** (Whisper + empreintes vocales WavLM, l'audio ne quitte pas l'ordinateur), soit via le service Gladia. Import des transcriptions Teams/Zoom/Meet (`.vtt`, `.srt`, `.txt`). |
 | **Relire** | Association « Locuteur N → participant », lecture synchronisée (clic sur l'horodatage), correction du texte, recherche, temps de parole par intervenant. |
+| **Synthétiser des fichiers** | PDF (lus avec leur mise en page), Word (.docx) et texte, joints à une réunion ou seuls (« Synthétiser des fichiers » sur l'accueil). |
 | **Rédiger** | PV, compte rendu, note de synthèse (BLUF), TBM, relevé de décisions — diffusés en direct, modifiables, consignes complémentaires possibles. |
 | **Exporter** | Word (.docx avec bandeau de classification et numéros de page), PDF (impression), Markdown, transcription texte, audio. |
 | **Partager** | Fichier de réunion complète `.monmeeting` (chiffrement AES-256 facultatif par mot de passe) à importer dans le MonMeeting d'un collègue ; partage des documents Word, de la transcription et de l'audio via le menu de partage de l'appareil (Mail, Signal, WhatsApp, Teams…). Aucun stockage en ligne. |
@@ -48,6 +49,17 @@ gratuites et fonctionnent **sans aucune clé**. Seuls deux services externes son
 
 L'hébergement reste gratuit : sur votre ordinateur, ou en ligne en version autonome (voir ci-dessous).
 
+## Version web et application téléphone
+
+| Version | Comment l'obtenir |
+|---|---|
+| **Web** | Publiée sur Netlify (ci-dessous). Sur téléphone, menu du navigateur → « Ajouter à l'écran d'accueil » : l'application s'installe et fonctionne hors ligne. |
+| **Android** | `npm run build:web && npx cap sync android && npx cap open android`, puis dans Android Studio : *Build → Generate Signed App Bundle / APK*. L'APK s'installe directement sur les téléphones du cercle. |
+| **iOS** | Sur un Mac : `npm run build:web && npx cap sync ios && npx cap open ios`, puis Xcode (compte Apple Developer requis ; diffusion au cercle via TestFlight). |
+
+Dans l'application téléphone, micro, caméra et partage passent par les fonctions natives
+(feuille de partage Android/iOS).
+
 ## Partager l'application avec un cercle restreint
 
 La **version autonome** (sans serveur) se publie gratuitement sur Netlify grâce au fichier
@@ -56,8 +68,11 @@ Chaque utilisateur conserve ses réunions dans son propre navigateur ; l'héberg
 donnée de réunion. Le site n'est pas référencé par les moteurs de recherche (`noindex`) : ne
 diffusez l'adresse qu'à votre cercle.
 
-1. Sur [app.netlify.com](https://app.netlify.com) : *Add new project → Import an existing project*,
-   choisissez ce dépôt GitHub et la branche voulue (réglages de build lus dans `netlify.toml`).
+1. Le projet Netlify **monmeeting-7k3q** est déjà créé
+   ([tableau de bord](https://app.netlify.com/projects/monmeeting-7k3q)). Dans *Project configuration →
+   Build & deploy → Link repository*, reliez ce dépôt GitHub et sa branche : les réglages de build
+   sont lus dans `netlify.toml`, et chaque mise à jour du dépôt republie le site.
+   (Ou, depuis votre ordinateur : `npm install && npm run build:web && npx netlify-cli deploy --prod --dir dist --site monmeeting-7k3q`.)
 2. Partagez l'adresse obtenue. Chacun peut « installer » l'application depuis son navigateur.
 
 Pour la rédaction automatique partagée (clé API côté serveur), hébergez plutôt le serveur Node
