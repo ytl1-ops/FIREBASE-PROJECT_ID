@@ -28,6 +28,24 @@ le navigateur, rédaction qui n'invente rien et signale les passages à vérifie
 | **Partager** | Fichier de réunion complète `.monmeeting` (chiffrement AES-256 facultatif par mot de passe) à importer dans le MonMeeting d'un collègue ; partage des documents Word, de la transcription et de l'audio via le menu de partage de l'appareil (Mail, Signal, WhatsApp, Teams…). Aucun stockage en ligne. |
 | **Demander** | « Demandez à votre réunion » : questions libres avec réponses sourcées par horodatage (décisions, actions, risques, e-mail de suivi…). |
 
+## API d'IA gratuites : rédiger et transcrire sans serveur ni Claude
+
+Réglages (⚙) → « API d'IA gratuite » : choisissez un fournisseur, créez une clé gratuite (lien
+fourni) et collez-la. « Rédiger », « Demander » et la transcription fonctionnent alors
+directement depuis le téléphone ou le PC.
+
+| Fournisseur | Gratuit | Remarque |
+|---|---|---|
+| **Groq** (recommandé) | Rédaction (Llama 3.3 70B) + transcription Whisper large-v3 (≈ 8 h/jour) | Sans carte bancaire, très rapide |
+| Google Gemini | Modèles Flash | Idéal pour les très longues réunions ; données du palier gratuit utilisées par Google |
+| Mistral AI | Palier « Experiment » | Bon français ; entraînement sur vos données exigé |
+| OpenRouter | Modèles « :free » (≈ 50 requêtes/jour) | Grand choix |
+
+Les longues réunions sont découpées automatiquement pour respecter les quotas gratuits, et
+l'application patiente puis réessaie si le quota par minute est atteint. Le texte et l'audio
+partent chez le fournisseur choisi : à éviter pour les réunions confidentielles (fonction
+retirée en mode entreprise).
+
 ## « Mon API » : tout en local, sans dépendre d'un service d'IA
 
 « Mon API » fait tourner la transcription (faster-whisper + identification des voix sherpa-onnx)

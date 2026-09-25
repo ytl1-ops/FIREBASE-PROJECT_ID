@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { buildAskManualPrompt } from "../../shared/prompts.ts";
 import type { AskMessage } from "../../shared/types.ts";
 import { askMeeting, type Health } from "../lib/api.ts";
+import { cloudAsk, getCloudSettings } from "../lib/cloud.ts";
 import { ENTERPRISE_MODE } from "../lib/config.ts";
 import type { Meeting } from "../lib/db.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
@@ -24,9 +25,12 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
 
   const busy = answer !== null;
   const [copied, setCopied] = useState(false);
+  // Questions : « Mon API » si connectée, sinon l'API gratuite configurée dans les Réglages.
+  const cloud = health?.generation.available ? null : getCloudSettings();
+  const canAsk = Boolean(health?.generation.available || cloud);
 
   // Sans clé API (mode autonome) : on copie la réunion pour l'interroger dans Claude.ai.
-  if (!health?.generation.available && ENTERPRISE_MODE) {
+  if (!canAsk && ENTERPRISE_MODE) {
     return (
       <div className="card">
         <h2>Demandez à votre réunion</h2>
@@ -34,7 +38,7 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
       </div>
     );
   }
-  if (!health?.generation.available) {
+  if (!canAsk) {
     return (
       <div className="card">
         <h2>Demandez à votre réunion</h2>
@@ -80,18 +84,17 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
     setAnswer("");
     abort.current = new AbortController();
     try {
-      const result = await askMeeting(
-        {
-          meeting: meeting.info,
-          transcript: meeting.transcript,
-          notes: meeting.notes,
-          attachments: meeting.attachments,
-          history,
-          question: q,
-        },
-        setAnswer,
-        abort.current.signal,
-      );
+      const request = {
+        meeting: meeting.info,
+        transcript: meeting.transcript,
+        notes: meeting.notes,
+        attachments: meeting.attachments,
+        history,
+        question: q,
+      };
+      const result = cloud
+        ? await cloudAsk(cloud, request, setAnswer, abort.current.signal)
+        : await askMeeting(request, setAnswer, abort.current.signal);
       setHistory((h) => [...h, { role: "user", content: q }, { role: "assistant", content: result.text }]);
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {

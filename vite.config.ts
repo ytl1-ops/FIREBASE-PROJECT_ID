@@ -33,6 +33,8 @@ export default defineConfig({
   // Node, application téléphone) comme dans un sous-dossier (GitHub Pages).
   base: "./",
   plugins: [react(), contentSecurityPolicy()],
+  // pdf.js (lecture des PDF) et le moteur Whisper sont chargés à la demande uniquement.
+  build: { chunkSizeWarningLimit: 2000 },
   server: {
     proxy: { "/api": "http://localhost:8787" },
   },

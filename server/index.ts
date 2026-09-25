@@ -59,7 +59,7 @@ app.use((req, res, next) => {
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
-        "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co",
+        "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://api.groq.com https://generativelanguage.googleapis.com https://api.mistral.ai https://openrouter.ai",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",

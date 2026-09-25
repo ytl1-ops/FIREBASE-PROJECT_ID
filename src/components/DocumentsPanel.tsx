@@ -4,6 +4,7 @@ import { buildManualPrompt } from "../../shared/prompts.ts";
 import type { DocumentType } from "../../shared/types.ts";
 import { generateDocument, type Health } from "../lib/api.ts";
 import { AttachmentsCard } from "./AttachmentsCard.tsx";
+import { cloudGenerate, getCloudSettings } from "../lib/cloud.ts";
 import type { Meeting } from "../lib/db.ts";
 import { exportDocx, exportMarkdown, printDocument } from "../lib/export.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
@@ -39,6 +40,11 @@ export function DocumentsPanel({
     (s) => s.speakerId?.startsWith("Locuteur ") && !meeting.info.participants.some((p) => p.id === s.speakerId),
   );
 
+  // Rédaction : « Mon API » si connectée, sinon l'API gratuite configurée dans les Réglages.
+  const cloud = health?.generation.available ? null : getCloudSettings();
+  const canGenerate = Boolean(health?.generation.available || cloud);
+  const [progressLabel, setProgressLabel] = useState<string | null>(null);
+
   async function generate() {
     if (saved && !window.confirm(`Remplacer le ${def.label.toLowerCase()} existant ?`)) return;
     setError(null);
@@ -47,18 +53,17 @@ export function DocumentsPanel({
     setStreaming("");
     abort.current = new AbortController();
     try {
-      const result = await generateDocument(
-        {
-          type: selected,
-          meeting: meeting.info,
-          transcript: meeting.transcript,
-          notes: meeting.notes,
-          attachments: meeting.attachments,
-          instructions,
-        },
-        setStreaming,
-        abort.current.signal,
-      );
+      const request = {
+        type: selected,
+        meeting: meeting.info,
+        transcript: meeting.transcript,
+        notes: meeting.notes,
+        attachments: meeting.attachments,
+        instructions,
+      };
+      const result = cloud
+        ? await cloudGenerate(cloud, request, setStreaming, setProgressLabel, abort.current.signal)
+        : await generateDocument(request, setStreaming, abort.current.signal);
       update((m) => ({
         ...m,
         documents: {
@@ -66,13 +71,14 @@ export function DocumentsPanel({
           [selected]: { content: result.text, generatedAt: new Date().toISOString(), model: result.model },
         },
       }));
-      if (result.truncated) setNotice("Le document a atteint la longueur maximale et peut être incomplet.");
+      if ("truncated" in result && result.truncated) setNotice("Le document a atteint la longueur maximale et peut être incomplet.");
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
       setStreaming(null);
+      setProgressLabel(null);
       abort.current = null;
     }
   }
@@ -151,9 +157,10 @@ export function DocumentsPanel({
           les propos leur seront attribués sous la forme « Locuteur N ».
         </div>
       )}
-      {!health?.generation.available && (
+      {!canGenerate && (
         <div className="alert info">
-          Rédaction automatique indisponible : connectez « Mon API » dans les Réglages (⚙)
+          Rédaction automatique indisponible : ajoutez une clé d'API gratuite (Groq, Gemini…) ou
+          connectez « Mon API » dans les Réglages (⚙)
           {ENTERPRISE_MODE ? "." : (
             <>
               , ou utilisez <strong>« Mode gratuit (Claude.ai) »</strong> — la demande est copiée,
@@ -176,7 +183,7 @@ export function DocumentsPanel({
           {streaming === null ? (
             <button
               className="primary"
-              disabled={!hasMaterial || !health?.generation.available}
+              disabled={!hasMaterial || !canGenerate}
               onClick={() => void generate()}
             >
               ✦ {saved ? "Régénérer" : "Rédiger"} le {def.label.toLowerCase()}
@@ -221,7 +228,7 @@ export function DocumentsPanel({
       ) : content ? (
         <article className="document" dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }} />
       ) : (
-        streaming !== null && <p className="muted">Rédaction en cours…</p>
+        streaming !== null && <p className="muted">{progressLabel ?? "Rédaction en cours…"}</p>
       )}
     </>
   );

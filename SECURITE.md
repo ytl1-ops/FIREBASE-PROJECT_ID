@@ -35,7 +35,7 @@ Téléphone / PC (navigateur ou application)            Serveur MSC (« Mon API 
 
 **Aucun service d'IA externe** n'est utilisé par « Mon API » (Ollama et Whisper tournent sur le
 serveur). Les seules sorties vers Internet, toutes désactivables, sont :
-1. le mode « Claude.ai » (copier-coller manuel) — **retiré en mode entreprise** ;
+1. le mode « Claude.ai » (copier-coller manuel) et les **API d'IA gratuites** (Groq, Gemini, Mistral, OpenRouter : texte et audio envoyés au fournisseur, clé stockée dans le navigateur) — **tous deux retirés en mode entreprise** ;
 2. le téléchargement des modèles Whisper depuis Hugging Face pour la transcription *sur
    l'appareil* (modèles uniquement, jamais de données de réunion) — voir R3 ;
 3. le fournisseur Gladia, désactivé par défaut côté serveur.

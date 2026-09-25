@@ -5,6 +5,7 @@ import { getModelHost, transcribeAudio, type Health } from "../lib/api.ts";
 import { getAudio, newId, type Meeting } from "../lib/db.ts";
 import { exportAudio, exportTranscript } from "../lib/export.ts";
 import { decodeAudio, runLocalTranscription, type LocalJob } from "../lib/local/index.ts";
+import { cloudCanTranscribe, cloudTranscribe, getCloudSettings } from "../lib/cloud.ts";
 import { defaultLocalModel, LOCAL_MODELS } from "../lib/local/protocol.ts";
 import { LANGUAGES, newParticipant } from "../lib/meeting.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
@@ -41,8 +42,10 @@ export function TranscriptPanel({
     ].join(", "),
   );
   const [busy, setBusy] = useState(false);
-  const [engine, setEngine] = useState<"local" | "server">(() =>
-    health?.transcription.available ? "server" : "local",
+  const cloud = getCloudSettings();
+  const cloudTranscription = cloudCanTranscribe(cloud);
+  const [engine, setEngine] = useState<"local" | "server" | "cloud">(() =>
+    health?.transcription.available ? "server" : cloudTranscription ? "cloud" : "local",
   );
   const [localModel, setLocalModel] = useState<string>(defaultLocalModel);
   const [progress, setProgress] = useState<{ label: string; value: number } | null>(null);
@@ -180,7 +183,15 @@ export function TranscriptPanel({
     setBusy(true);
     setError(null);
     try {
-      if (engine === "server") {
+      if (engine === "cloud" && cloud) {
+        setInfo("Transcription par l'API gratuite (Whisper large-v3)…");
+        const controller = new AbortController();
+        job.current = { result: Promise.resolve({ segments: [], device: "" }), cancel: () => controller.abort() };
+        setProgress({ label: "Envoi et transcription", value: 0.3 });
+        const lang = LANGUAGES.find((l) => l.code === languages[0]);
+        const result = await cloudTranscribe(cloud, audio, lang?.code, vocabulary.split(/[,\n;]/), controller.signal);
+        applyTranscription(result.segments);
+      } else if (engine === "server") {
         setInfo("Transcription sur « Mon API » : vous pouvez continuer à utiliser l'application pendant le traitement.");
         const controller = new AbortController();
         job.current = { result: Promise.resolve({ segments: [], device: "" }), cancel: () => controller.abort() };
@@ -357,8 +368,23 @@ export function TranscriptPanel({
               >
                 Mon API — serveur MonMeeting
               </button>
+              {cloudTranscription && (
+                <button
+                  className={`chip ${engine === "cloud" ? "active" : ""}`}
+                  onClick={() => setEngine("cloud")}
+                  disabled={busy}
+                >
+                  API gratuite — très rapide
+                </button>
+              )}
             </div>
-            {engine === "local" ? (
+            {engine === "cloud" ? (
+              <p className="muted small">
+                ⚡ L'audio est envoyé au fournisseur choisi dans les Réglages (Whisper large-v3,
+                quelques secondes). Les voix ne sont pas séparées : attribuez les intervenants ensuite.
+                À éviter pour les réunions confidentielles.
+              </p>
+            ) : engine === "local" ? (
               <p className="muted small">
                 🔒 L'audio ne quitte pas votre appareil. Le modèle Whisper est téléchargé au premier
                 usage puis conservé par le navigateur. Durée indicative : de l'ordre du temps réel sur
@@ -417,7 +443,13 @@ export function TranscriptPanel({
                 />
                 <p className="muted small">Le préciser améliore nettement la séparation des voix.</p>
               </div>
-              {engine === "local" ? (
+              {engine === "cloud" ? (
+              <p className="muted small">
+                ⚡ L'audio est envoyé au fournisseur choisi dans les Réglages (Whisper large-v3,
+                quelques secondes). Les voix ne sont pas séparées : attribuez les intervenants ensuite.
+                À éviter pour les réunions confidentielles.
+              </p>
+            ) : engine === "local" ? (
                 <div>
                   <label htmlFor="local-model">Qualité</label>
                   <select id="local-model" value={localModel} onChange={(e) => setLocalModel(e.target.value)}>

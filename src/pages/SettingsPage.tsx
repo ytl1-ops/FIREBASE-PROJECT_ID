@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CloudSettingsCard } from "../components/CloudSettingsCard.tsx";
 import { StorageSettings } from "../components/StorageSettings.tsx";
 import { fetchHealth, getApiSettings, getModelHost, openSession, saveApiSettings, saveModelHost, type Health } from "../lib/api.ts";
 
@@ -57,6 +58,8 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
   return (
     <div className="card stack">
       <h1>Réglages</h1>
+      <CloudSettingsCard />
+      <hr style={{ border: "none", borderTop: "1px solid var(--border)", width: "100%" }} />
       <StorageSettings />
       <hr style={{ border: "none", borderTop: "1px solid var(--border)", width: "100%" }} />
       <div>
