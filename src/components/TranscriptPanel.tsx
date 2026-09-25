@@ -5,7 +5,7 @@ import { transcribeAudio, type Health } from "../lib/api.ts";
 import { getAudio, newId, type Meeting } from "../lib/db.ts";
 import { exportAudio, exportTranscript } from "../lib/export.ts";
 import { decodeAudio, runLocalTranscription, type LocalJob } from "../lib/local/index.ts";
-import { LOCAL_MODELS } from "../lib/local/protocol.ts";
+import { defaultLocalModel, LOCAL_MODELS } from "../lib/local/protocol.ts";
 import { LANGUAGES, newParticipant } from "../lib/meeting.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
@@ -42,7 +42,7 @@ export function TranscriptPanel({
   );
   const [busy, setBusy] = useState(false);
   const [engine, setEngine] = useState<"local" | "gladia">("local");
-  const [localModel, setLocalModel] = useState<string>(LOCAL_MODELS[1].id);
+  const [localModel, setLocalModel] = useState<string>(defaultLocalModel);
   const [progress, setProgress] = useState<{ label: string; value: number } | null>(null);
   const job = useRef<LocalJob | null>(null);
   const [error, setError] = useState<string | null>(null);

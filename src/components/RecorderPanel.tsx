@@ -3,7 +3,13 @@ import { formatTimestamp, speakerName } from "../../shared/transcript.ts";
 import type { TranscriptSegment } from "../../shared/types.ts";
 import { appendAudioChunk, clearAudio, newId, type Meeting } from "../lib/db.ts";
 import { LANGUAGES } from "../lib/meeting.ts";
-import { isVideoMode, MeetingRecorder, recordingSupported, type CaptureMode } from "../lib/recorder.ts";
+import {
+  deviceErrorMessage,
+  isVideoMode,
+  MeetingRecorder,
+  recordingSupported,
+  type CaptureMode,
+} from "../lib/recorder.ts";
 import { LiveSpeech, liveSpeechSupported } from "../lib/speech.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
@@ -107,11 +113,7 @@ export function RecorderPanel({
     try {
       await rec.start(mode, deviceId || undefined);
     } catch (err) {
-      setError(
-        err instanceof DOMException && err.name === "NotAllowedError"
-          ? "Accès au microphone refusé. Autorisez-le dans les paramètres du navigateur."
-          : `Impossible de démarrer l'enregistrement : ${err instanceof Error ? err.message : err}`,
-      );
+      setError(deviceErrorMessage(err, mode));
       await rec.stop();
       return;
     }
@@ -126,7 +128,8 @@ export function RecorderPanel({
     setElapsed(0);
     setStatus("recording");
 
-    if (livePreview && liveSpeechSupported()) {
+    // L'aperçu en direct n'écoute que le micro : inutile pour le son d'un onglet.
+    if (livePreview && liveSpeechSupported() && mode !== "onglet" && rec.micStream) {
       live.current = new LiveSpeech(lang, {
         onFinal: (text) => addSegment({ text, speakerId: speakerRef.current, kind: "speech" }),
         onInterim: setInterim,
@@ -204,6 +207,7 @@ export function RecorderPanel({
             <select id="mode" value={mode} onChange={(e) => setMode(e.target.value as CaptureMode)}>
               <option value="micro">Audio — réunion en salle (microphone)</option>
               <option value="visio">Audio — visioconférence (micro + son de l'onglet)</option>
+              <option value="onglet">Audio — son de l'ordinateur ou d'un onglet (émission, vidéo, sans micro)</option>
               <option value="camera">Vidéo — caméra + microphone</option>
               <option value="ecran">Vidéo — écran partagé + micro + son (visio, présentation)</option>
             </select>

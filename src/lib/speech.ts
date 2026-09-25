@@ -75,6 +75,9 @@ export class LiveSpeech {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         this.active = false;
         this.callbacks.onError?.("Reconnaissance vocale refusée par le navigateur.");
+      } else if (e.error === "audio-capture") {
+        // Pas de micro utilisable : on arrête l'aperçu sans relancer en boucle.
+        this.active = false;
       }
     };
     // Le navigateur coupe la reconnaissance après un silence : on la relance.

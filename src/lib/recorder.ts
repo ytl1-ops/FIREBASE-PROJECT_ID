@@ -5,7 +5,30 @@
  * - Fragments émis toutes les `timeslice` ms pour être persistés immédiatement.
  * - Verrou d'écran (Wake Lock) pour éviter la mise en veille pendant la réunion.
  */
-export type CaptureMode = "micro" | "visio" | "camera" | "ecran";
+export type CaptureMode = "micro" | "visio" | "onglet" | "camera" | "ecran";
+
+/** Modes qui captent le son de l'ordinateur : le micro y est facultatif. */
+export const usesDisplay = (mode: CaptureMode) => mode === "visio" || mode === "onglet" || mode === "ecran";
+
+/** Message clair pour les erreurs d'accès aux périphériques. */
+export function deviceErrorMessage(err: unknown, mode?: CaptureMode): string {
+  const name = err instanceof DOMException ? err.name : "";
+  switch (name) {
+    case "NotAllowedError":
+      return "Accès refusé. Autorisez le microphone (et le partage d'écran le cas échéant) pour ce site dans le navigateur, puis réessayez.";
+    case "NotFoundError":
+      return "Aucun microphone détecté sur cet appareil. Branchez un micro ou un casque, ou vérifiez Windows : Paramètres → Confidentialité → Microphone. Pour enregistrer une émission ou une vidéo qui passe sur l'ordinateur (France 24, YouTube…), choisissez la source « Son de l'ordinateur ou d'un onglet », qui fonctionne sans micro.";
+    case "NotReadableError":
+      if (mode && usesDisplay(mode)) {
+        return "Capture de l'écran ou de l'onglet impossible sur cet appareil. Sur ordinateur, utilisez Chrome ou Edge ; sur téléphone, le partage du son d'un onglet n'est pas disponible.";
+      }
+      return "Le microphone est déjà utilisé par une autre application (Teams, Zoom…) ou bloqué par le système. Fermez-la puis réessayez.";
+    case "AbortError":
+      return "Partage annulé : sélectionnez l'onglet ou l'écran à enregistrer et cochez « Partager l'audio ».";
+    default:
+      return `Impossible de démarrer l'enregistrement : ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
 
 export const isVideoMode = (mode: CaptureMode) => mode === "camera" || mode === "ecran";
 
@@ -59,27 +82,55 @@ export class MeetingRecorder {
     this.chunkIndex = startIndex;
   }
 
-  async start(mode: CaptureMode, deviceId?: string) {
-    const mic = await navigator.mediaDevices.getUserMedia({
+  private async openMic(mode: CaptureMode, deviceId?: string): Promise<MediaStream> {
+    const constraints = (id?: string): MediaStreamConstraints => ({
       audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
+        deviceId: id ? { exact: id } : undefined,
         channelCount: 1,
         echoCancellation: mode !== "micro",
         noiseSuppression: true,
         autoGainControl: true,
       },
     });
-    this.micStream = mic;
-    this.streams.push(mic);
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints(deviceId));
+    } catch (err) {
+      // Micro choisi débranché entre-temps : on retente avec le micro par défaut.
+      if (deviceId && err instanceof DOMException && (err.name === "OverconstrainedError" || err.name === "NotFoundError")) {
+        return navigator.mediaDevices.getUserMedia(constraints());
+      }
+      throw err;
+    }
+  }
+
+  async start(mode: CaptureMode, deviceId?: string) {
+    let mic: MediaStream | null = null;
+    if (mode !== "onglet") {
+      try {
+        mic = await this.openMic(mode, deviceId);
+      } catch (err) {
+        // Sans micro, les modes « son de l'ordinateur » restent possibles.
+        if (!(usesDisplay(mode) && err instanceof DOMException && err.name === "NotFoundError")) throw err;
+        this.callbacks.onError?.(
+          "Aucun microphone détecté : seul le son de l'ordinateur sera enregistré.",
+        );
+      }
+    }
+    if (mic) {
+      this.micStream = mic;
+      this.streams.push(mic);
+    }
 
     this.audioContext = new AudioContext();
     const destination = this.audioContext.createMediaStreamDestination();
     const analyser = this.audioContext.createAnalyser();
     analyser.fftSize = 1024;
 
-    const micSource = this.audioContext.createMediaStreamSource(mic);
-    micSource.connect(destination);
-    micSource.connect(analyser);
+    if (mic) {
+      const micSource = this.audioContext.createMediaStreamSource(mic);
+      micSource.connect(destination);
+      micSource.connect(analyser);
+    }
 
     let videoTrack: MediaStreamTrack | undefined;
     if (mode === "camera") {
@@ -90,12 +141,17 @@ export class MeetingRecorder {
       videoTrack = cam.getVideoTracks()[0];
     }
 
-    if (mode === "visio" || mode === "ecran") {
+    if (usesDisplay(mode)) {
       // Capture de l'onglet/écran partagé (Teams, Zoom, Meet dans le navigateur).
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       this.streams.push(display);
       if (mode === "ecran") videoTrack = display.getVideoTracks()[0];
       else display.getVideoTracks().forEach((t) => t.stop());
+      if (display.getAudioTracks().length === 0 && !mic) {
+        throw new Error(
+          "Aucun son partagé. Relancez et, dans la fenêtre de partage, choisissez l'onglet (ou l'écran entier) puis cochez « Partager l'audio ».",
+        );
+      }
       if (display.getAudioTracks().length === 0) {
         this.callbacks.onError?.(
           "Aucun audio partagé : cochez « Partager l'audio de l'onglet » pour enregistrer les participants distants.",

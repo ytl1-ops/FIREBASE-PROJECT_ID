@@ -46,7 +46,10 @@ async function transcribe(req: LocalRequest) {
   post({ type: "progress", phase: "download", label: "Modèle de transcription", progress: 0 });
   const asr = (await pipeline("automatic-speech-recognition", model, {
     device: webgpu ? "webgpu" : "wasm",
-    dtype: webgpu ? { encoder_model: "fp32", decoder_model_merged: "q4" } : "q8",
+    // L'encodeur reste en pleine précision : quantifié, il produit du texte incohérent.
+    dtype: webgpu
+      ? { encoder_model: "fp32", decoder_model_merged: "q4" }
+      : { encoder_model: "fp32", decoder_model_merged: "q8" },
     progress_callback: downloadProgress("Modèle de transcription"),
   })) as AutomaticSpeechRecognitionPipeline;
 

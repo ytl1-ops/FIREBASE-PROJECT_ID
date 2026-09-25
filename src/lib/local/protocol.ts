@@ -27,16 +27,24 @@ export const LOCAL_MODELS = [
   {
     id: "onnx-community/whisper-base",
     label: "Rapide",
-    detail: "≈ 80 Mo, convient aux ordinateurs modestes",
+    detail: "≈ 150 Mo, recommandé sur téléphone",
   },
   {
     id: "onnx-community/whisper-small",
     label: "Équilibré",
-    detail: "≈ 250 Mo, bon compromis qualité/vitesse",
+    detail: "≈ 450 Mo, ordinateur conseillé",
   },
   {
     id: "onnx-community/whisper-large-v3-turbo",
     label: "Précis",
-    detail: "≈ 800 Mo, carte graphique récente (WebGPU) recommandée",
+    detail: "≈ 1 Go, ordinateur avec carte graphique récente",
   },
 ] as const;
+
+/** Téléphone ou appareil peu doté en mémoire : modèle « Rapide » par défaut. */
+export function defaultLocalModel(): string {
+  const nav = navigator as Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean } };
+  const mobile = nav.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  const lowMemory = (nav.deviceMemory ?? 8) <= 4;
+  return mobile || lowMemory ? LOCAL_MODELS[0].id : LOCAL_MODELS[1].id;
+}
