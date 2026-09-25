@@ -29,7 +29,7 @@ Règles de forme :
 - Dates au format « mardi 24 septembre 2026 », heures au format « 14 h 30 ».
 - Termine par une ligne « Document établi avec l'assistance de MonMeeting à partir de l'enregistrement de la réunion — à relire et valider avant diffusion. »`;
 
-function formatDate(iso: string, timeZone?: string): string {
+export function formatDate(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const options: Intl.DateTimeFormatOptions = { dateStyle: "full", timeStyle: "short" };
@@ -40,7 +40,7 @@ function formatDate(iso: string, timeZone?: string): string {
   }
 }
 
-const PRESENCE_LABELS = {
+export const PRESENCE_LABELS = {
   present: "présent(e)",
   absent: "absent(e)",
   excuse: "excusé(e)",

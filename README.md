@@ -28,6 +28,20 @@ le navigateur, rédaction qui n'invente rien et signale les passages à vérifie
 | **Partager** | Fichier de réunion complète `.monmeeting` (chiffrement AES-256 facultatif par mot de passe) à importer dans le MonMeeting d'un collègue ; partage des documents Word, de la transcription et de l'audio via le menu de partage de l'appareil (Mail, Signal, WhatsApp, Teams…). Aucun stockage en ligne. |
 | **Demander** | « Demandez à votre réunion » : questions libres avec réponses sourcées par horodatage (décisions, actions, risques, e-mail de suivi…). |
 
+## Mode 100 % autonome : suivre et synthétiser ses réunions sans serveur, sans clé, sans IA externe
+
+Tout se fait sur le téléphone ou le PC, hors ligne, et **rien ne quitte l'appareil** :
+
+| Étape | Moteur autonome |
+|---|---|
+| Enregistrer | Micro, visio, écran, caméra ; stockage sur l'appareil |
+| Transcrire | Transcription → « Sur cet appareil » (Whisper, modèle téléchargé une fois) |
+| Rédiger | Documents → Moteur « Autonome — extraction » : PV, compte rendu, note de synthèse, TBM, relevé de décisions **instantanés**, sans aucun modèle. Le moteur repère décisions, actions (responsable et échéance), risques et menaces, consignes, retours d'expérience, questions/réponses et points en suspens, sélectionne les propos clés, les rattache à l'ordre du jour et les cite horodatés. |
+| Rédiger (mieux) | Moteur « Autonome — IA locale » : petit modèle de langage (Qwen2.5 1,5B sur PC avec carte graphique, 0,5B sinon) téléchargé une fois (≈ 0,5 à 1,2 Go), puis hors ligne. Les longues réunions lui sont transmises sous forme de fiche d'analyse. Qualité inférieure aux grands modèles : relecture indispensable. |
+| Demander | Sans clé, « Demandez à votre réunion » répond par recherche dans la réunion (décisions, actions, risques, positions de chacun, e-mail de suivi, recherche libre) |
+
+Le mode « Automatique » choisit dans l'ordre : « Mon API », une clé d'API gratuite, puis l'extraction sur l'appareil.
+
 ## API d'IA gratuites : rédiger et transcrire sans serveur ni Claude
 
 Réglages (⚙) → « API d'IA gratuite » : choisissez un fournisseur, créez une clé gratuite (lien

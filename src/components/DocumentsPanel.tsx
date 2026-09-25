@@ -4,6 +4,7 @@ import { buildManualPrompt } from "../../shared/prompts.ts";
 import type { DocumentType } from "../../shared/types.ts";
 import { generateDocument, type Health } from "../lib/api.ts";
 import { AttachmentsCard } from "./AttachmentsCard.tsx";
+import { getMoteur, redigerExtraction, redigerIaLocale, saveMoteur, type MoteurRedaction } from "../lib/autonome.ts";
 import { cloudGenerate, getCloudSettings } from "../lib/cloud.ts";
 import type { Meeting } from "../lib/db.ts";
 import { exportDocx, exportMarkdown, printDocument } from "../lib/export.ts";
@@ -40,9 +41,19 @@ export function DocumentsPanel({
     (s) => s.speakerId?.startsWith("Locuteur ") && !meeting.info.participants.some((p) => p.id === s.speakerId),
   );
 
-  // Rédaction : « Mon API » si connectée, sinon l'API gratuite configurée dans les Réglages.
-  const cloud = health?.generation.available ? null : getCloudSettings();
-  const canGenerate = Boolean(health?.generation.available || cloud);
+  // Moteur : « auto » = Mon API si connectée, sinon clé d'API gratuite, sinon mode autonome
+  // (extraction sur l'appareil). Les deux modes autonomes ne transmettent rien.
+  const [moteur, setMoteur] = useState<MoteurRedaction>(getMoteur);
+  const cloud = moteur === "auto" && !health?.generation.available ? getCloudSettings() : null;
+  const viaApi = moteur === "auto" && Boolean(health?.generation.available);
+  const autonome = moteur === "extraction" || (moteur === "auto" && !viaApi && !cloud) ? "extraction" : moteur === "ia-locale" ? "ia-locale" : null;
+  const moteurActuel = viaApi
+    ? `« Mon API » (${health?.generation.model ?? "serveur"})`
+    : cloud
+      ? "clé d'API gratuite (Réglages)"
+      : autonome === "ia-locale"
+        ? "IA locale sur l'appareil"
+        : "extraction sur l'appareil (sans IA, instantané)";
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
 
   async function generate() {
@@ -61,9 +72,14 @@ export function DocumentsPanel({
         attachments: meeting.attachments,
         instructions,
       };
-      const result = cloud
-        ? await cloudGenerate(cloud, request, setStreaming, setProgressLabel, abort.current.signal)
-        : await generateDocument(request, setStreaming, abort.current.signal);
+      const result =
+        autonome === "extraction"
+          ? await redigerExtraction(request)
+          : autonome === "ia-locale"
+            ? await redigerIaLocale(request, setStreaming, setProgressLabel, abort.current.signal)
+            : cloud
+              ? await cloudGenerate(cloud, request, setStreaming, setProgressLabel, abort.current.signal)
+              : await generateDocument(request, setStreaming, abort.current.signal);
       update((m) => ({
         ...m,
         documents: {
@@ -157,19 +173,6 @@ export function DocumentsPanel({
           les propos leur seront attribués sous la forme « Locuteur N ».
         </div>
       )}
-      {!canGenerate && (
-        <div className="alert info">
-          Rédaction automatique indisponible : ajoutez une clé d'API gratuite (Groq, Gemini…) ou
-          connectez « Mon API » dans les Réglages (⚙)
-          {ENTERPRISE_MODE ? "." : (
-            <>
-              , ou utilisez <strong>« Mode gratuit (Claude.ai) »</strong> — la demande est copiée,
-              vous la collez dans Claude.ai puis recollez le document ici.
-            </>
-          )}
-        </div>
-      )}
-
       <div className="card no-print">
         <label htmlFor="instructions">Consignes complémentaires (facultatif)</label>
         <textarea
@@ -179,11 +182,32 @@ export function DocumentsPanel({
           placeholder="Ex. : destinataire = Directeur sûreté groupe ; insister sur la situation à Bamako ; format court…"
           onChange={(e) => setInstructions(e.target.value)}
         />
+        <label htmlFor="moteur" style={{ marginTop: 10 }}>Moteur de rédaction</label>
+        <select
+          id="moteur"
+          value={moteur}
+          disabled={streaming !== null}
+          onChange={(e) => {
+            const m = e.target.value as MoteurRedaction;
+            setMoteur(m);
+            saveMoteur(m);
+          }}
+        >
+          <option value="auto">Automatique</option>
+          <option value="extraction">Autonome — extraction (instantané)</option>
+          <option value="ia-locale">Autonome — IA locale (PC récent)</option>
+        </select>
+        <p className="muted small" style={{ margin: "4px 0 0" }}>
+          Utilisé : {moteurActuel}.{moteur === "auto" && " (ordre : Mon API → clé gratuite → appareil)"}
+          {autonome && " Rien ne quitte l'appareil."}
+          {autonome === "extraction" && " Le document reprend les propos exacts (décisions, actions, risques, points en suspens), horodatés, à relire et reformuler."}
+          {autonome === "ia-locale" && " Premier usage : téléchargement du modèle (≈ 0,5 à 1,2 Go) ; ensuite hors ligne. Lent sur téléphone."}
+        </p>
         <div className="row" style={{ marginTop: 10 }}>
           {streaming === null ? (
             <button
               className="primary"
-              disabled={!hasMaterial || !canGenerate}
+              disabled={!hasMaterial}
               onClick={() => void generate()}
             >
               ✦ {saved ? "Régénérer" : "Rédiger"} le {def.label.toLowerCase()}

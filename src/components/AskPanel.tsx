@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { buildAskManualPrompt } from "../../shared/prompts.ts";
 import type { AskMessage } from "../../shared/types.ts";
 import { askMeeting, type Health } from "../lib/api.ts";
-import { cloudAsk, getCloudSettings } from "../lib/cloud.ts";
+import { cloudAsk, getCloudSettings, withPdfText } from "../lib/cloud.ts";
+import { repondreSansIA } from "../../shared/extraction.ts";
 import { ENTERPRISE_MODE } from "../lib/config.ts";
 import type { Meeting } from "../lib/db.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
@@ -29,51 +30,23 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
   const cloud = health?.generation.available ? null : getCloudSettings();
   const canAsk = Boolean(health?.generation.available || cloud);
 
-  // Sans clé API (mode autonome) : on copie la réunion pour l'interroger dans Claude.ai.
-  if (!canAsk && ENTERPRISE_MODE) {
-    return (
-      <div className="card">
-        <h2>Demandez à votre réunion</h2>
-        <p className="muted">Connectez « Mon API » (serveur interne) dans les Réglages (⚙) pour interroger vos réunions.</p>
-      </div>
-    );
-  }
-  if (!canAsk) {
-    return (
-      <div className="card">
-        <h2>Demandez à votre réunion</h2>
-        <p className="muted">
-          Mode gratuit : copiez la réunion, collez-la dans une conversation Claude.ai, puis posez
-          vos questions. Exemples :
-        </p>
-        <ul className="small">
-          {SUGGESTIONS.map((s) => (
-            <li key={s}>{s}</li>
-          ))}
-        </ul>
-        <button
-          className="primary"
-          onClick={() => {
-            void navigator.clipboard
-              .writeText(
-                buildAskManualPrompt({
-                  meeting: meeting.info,
-                  transcript: meeting.transcript,
-                  notes: meeting.notes,
-                  attachments: meeting.attachments,
-                }),
-              )
-              .then(() => {
-                setCopied(true);
-                window.open("https://claude.ai/new", "_blank", "noopener");
-              });
-          }}
-        >
-          ⧉ Copier la réunion et ouvrir Claude.ai
-        </button>
-        {copied && <p className="muted small">Copié : collez (Ctrl+V) dans Claude.ai.</p>}
-      </div>
-    );
+  // Sans API ni clé : mode autonome, réponses par recherche dans la réunion (sur l'appareil).
+  const local = !canAsk;
+
+  function copyForClaude() {
+    void navigator.clipboard
+      .writeText(
+        buildAskManualPrompt({
+          meeting: meeting.info,
+          transcript: meeting.transcript,
+          notes: meeting.notes,
+          attachments: meeting.attachments,
+        }),
+      )
+      .then(() => {
+        setCopied(true);
+        window.open("https://claude.ai/new", "_blank", "noopener");
+      });
   }
 
   async function ask(text: string) {
@@ -82,6 +55,13 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
     setQuestion("");
     setError(null);
     setAnswer("");
+    if (local) {
+      const attachments = await withPdfText(meeting.attachments);
+      const text = repondreSansIA({ meeting: meeting.info, transcript: meeting.transcript, notes: meeting.notes, attachments, question: q });
+      setHistory((h) => [...h, { role: "user", content: q }, { role: "assistant", content: text }]);
+      setAnswer(null);
+      return;
+    }
     abort.current = new AbortController();
     try {
       const request = {
@@ -117,8 +97,19 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
         )}
       </div>
       <p className="muted small">
-        Les réponses s'appuient uniquement sur la transcription et citent l'horodatage des passages.
+        {local
+          ? "Mode autonome : les réponses sont trouvées sur l'appareil, par recherche dans la réunion (sans IA ni envoi de données), avec l'horodatage des passages."
+          : "Les réponses s'appuient uniquement sur la transcription et citent l'horodatage des passages."}
       </p>
+      {local && !ENTERPRISE_MODE && (
+        <p className="muted small">
+          Pour des réponses rédigées : ajoutez une clé d'API gratuite dans les Réglages (⚙), ou{" "}
+          <button className="ghost small" onClick={copyForClaude}>
+            ⧉ copiez la réunion vers Claude.ai
+          </button>
+          {copied && " — copié, collez-la dans Claude.ai."}
+        </p>
+      )}
 
       {history.length === 0 && !busy && (
         <div className="row" style={{ gap: 6, marginBottom: 14 }}>

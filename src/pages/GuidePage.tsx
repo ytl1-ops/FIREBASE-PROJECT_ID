@@ -37,7 +37,8 @@ const STEPS: { icon: string; title: string; body: string[] }[] = [
     body: [
       "Onglet Documents → choisissez le type → « Rédiger ».",
       "Ajoutez si besoin des fichiers (PDF, Word) à synthétiser avec la réunion.",
-      "Sans « Mon API » : « Mode gratuit (Claude.ai) » copie la demande ; collez-la dans Claude.ai puis recollez le résultat.",
+      "Sans serveur ni clé : le mode autonome rédige directement sur le téléphone (extraction des décisions, actions, risques), sans rien envoyer.",
+      "Option « IA locale » (PC récent) : un modèle d'IA téléchargé une fois rédige hors ligne.",
       "Relisez, modifiez (✎), puis exportez en Word.",
     ],
   },

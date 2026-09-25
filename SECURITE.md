@@ -36,8 +36,9 @@ Téléphone / PC (navigateur ou application)            Serveur MSC (« Mon API 
 **Aucun service d'IA externe** n'est utilisé par « Mon API » (Ollama et Whisper tournent sur le
 serveur). Les seules sorties vers Internet, toutes désactivables, sont :
 1. le mode « Claude.ai » (copier-coller manuel) et les **API d'IA gratuites** (Groq, Gemini, Mistral, OpenRouter : texte et audio envoyés au fournisseur, clé stockée dans le navigateur) — **tous deux retirés en mode entreprise** ;
-2. le téléchargement des modèles Whisper depuis Hugging Face pour la transcription *sur
-   l'appareil* (modèles uniquement, jamais de données de réunion) — voir R3 ;
+2. le téléchargement des modèles Whisper (transcription) et Qwen2.5 (« IA locale ») depuis Hugging Face pour le
+   traitement *sur l'appareil* (modèles uniquement, jamais de données de réunion) — voir R3.
+   Le moteur autonome « extraction » (rédaction et questions) n'utilise aucun modèle ni réseau ;
 3. le fournisseur Gladia, désactivé par défaut côté serveur.
 
 ## 3. Contrôles en place (vérifiés)
@@ -88,7 +89,7 @@ docker compose up -d            # sans le profil « partage » : pas de tunnel p
 ## 6. Procédure de vérification rejouable
 
 ```bash
-npm test && npm run typecheck                     # 19 tests (dont chiffrement, échappement HTML)
+npm test && npm run typecheck                     # 29 tests (dont chiffrement, échappement HTML, moteur autonome)
 (cd asr && python -m pytest -q)                   # 6 tests du service de transcription
 npm audit --omit=dev && pip-audit -r asr/requirements.txt
 curl -s localhost:8787/api/generate -X POST        # → 401 sans jeton

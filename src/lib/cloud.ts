@@ -195,7 +195,7 @@ async function streamChat(
 const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
 /** Texte des PDF joints (les API compatibles OpenAI ne lisent pas les PDF). */
-async function withPdfText(attachments: Attachment[] | undefined): Promise<Attachment[] | undefined> {
+export async function withPdfText(attachments: Attachment[] | undefined): Promise<Attachment[] | undefined> {
   if (!attachments?.some((a) => a.kind === "pdf")) return attachments;
   const { extractText } = await import("unpdf");
   return Promise.all(
