@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MonMeeting — test</title>
+<style>
+  body { font: 18px/1.5 system-ui, sans-serif; margin: 24px; background: #f4f6f9; color: #16202c; }
+  a { display: block; margin: 14px 0; padding: 14px; background: #0f2a44; color: #fff; border-radius: 10px; text-decoration: none; text-align: center; }
+  code { background: #e3e7ee; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>✅ Test réussi</h1>
+  <p>Si vous lisez cette page, votre navigateur affiche correctement le site (aucun script).</p>
+  <p id="js">JavaScript : <strong>non exécuté</strong></p>
+  <p id="info"></p>
+  <a href="./?sans-cache">Ouvrir MonMeeting (mode sans cache)</a>
+  <a href="./">Ouvrir MonMeeting (normal)</a>
+  <script>
+    document.getElementById("js").innerHTML = "JavaScript : <strong>fonctionne</strong>";
+    document.getElementById("info").textContent = navigator.userAgent;
+  </script>
+</body>
+</html>
