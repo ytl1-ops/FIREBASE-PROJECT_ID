@@ -4,18 +4,26 @@
 # Windows PowerShell 5.1 en mode « Stop ». Les échecs sont testés via $LASTEXITCODE.
 $ErrorActionPreference = "Continue"
 Set-Location (Split-Path -Parent $PSScriptRoot)
+# Journal de tout ce qui s'affiche, pour le diagnostic (demarrage.log, à côté du .bat).
+try { Start-Transcript -Path (Join-Path (Get-Location) "demarrage.log") -Force | Out-Null } catch { }
+trap {
+  Write-Host ""
+  Write-Host "ERREUR : $($_.Exception.Message)" -ForegroundColor Red
+  Write-Host "Envoyez une capture de cette fenêtre (ou le fichier demarrage.log)."
+  try { Stop-Transcript | Out-Null } catch { }
+  exit 1
+}
 
 Write-Host "=== MonMeeting : démarrage ===" -ForegroundColor Cyan
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Write-Host "Docker Desktop n'est pas installé : https://www.docker.com/products/docker-desktop/" -ForegroundColor Red
   Start-Process "https://www.docker.com/products/docker-desktop/"
-  Read-Host "Installez-le, redémarrez le PC, puis relancez ce script. Entrée pour quitter"
+  Write-Host "Installez-le, redémarrez le PC, puis relancez demarrer-monmeeting.bat."
   exit 1
 }
 docker info *> $null
 if ($LASTEXITCODE -ne 0) {
   Write-Host "Démarrez Docker Desktop (icône de la baleine), attendez qu'il soit prêt, puis relancez." -ForegroundColor Yellow
-  Read-Host "Entrée pour quitter"
   exit 1
 }
 
@@ -41,7 +49,10 @@ if (-not (Select-String -Path ".env" -Pattern "^OLLAMA_MODEL=" -Quiet)) {
 
 Write-Host "Construction et démarrage (le premier lancement télécharge plusieurs Go : 10 à 30 min)..."
 docker compose --profile partage up -d --build
-if ($LASTEXITCODE -ne 0) { Read-Host "Échec du démarrage. Entrée pour quitter"; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Échec du démarrage de Docker (voir les messages ci-dessus)." -ForegroundColor Red
+  exit 1
+}
 
 Write-Host "Recherche de l'adresse https publique..."
 $url = $null
@@ -65,4 +76,5 @@ if ($url) {
 }
 Write-Host "Le modèle de rédaction se télécharge en arrière-plan : « docker compose logs -f ollama-init »."
 Start-Process "http://localhost:8787"
-Read-Host "Entrée pour fermer cette fenêtre (MonMeeting continue de fonctionner)"
+Write-Host "Vous pouvez fermer cette fenêtre : MonMeeting continue de fonctionner."
+try { Stop-Transcript | Out-Null } catch { }
