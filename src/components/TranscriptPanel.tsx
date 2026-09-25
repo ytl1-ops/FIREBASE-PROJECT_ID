@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp, parseTranscriptFile, speakerName } from "../../shared/transcript.ts";
 import type { TranscriptSegment } from "../../shared/types.ts";
-import { transcribeAudio, type Health } from "../lib/api.ts";
+import { getModelHost, transcribeAudio, type Health } from "../lib/api.ts";
 import { getAudio, newId, type Meeting } from "../lib/db.ts";
 import { exportAudio, exportTranscript } from "../lib/export.ts";
 import { decodeAudio, runLocalTranscription, type LocalJob } from "../lib/local/index.ts";
@@ -124,6 +124,13 @@ export function TranscriptPanel({
   }
 
   function applyTranscription(result: { start: number; end: number; speaker: string; text: string }[]) {
+    if (result.length === 0) {
+      setInfo(null);
+      setError(
+        "Aucune parole détectée dans l'enregistrement. Vérifiez qu'il contient bien des voix (réécoutez-le), que le micro n'était pas couvert, puis réessayez en précisant la langue.",
+      );
+      return;
+    }
     const segments: TranscriptSegment[] = result.map((seg) => ({
       id: newId("s-"),
       start: seg.start,
@@ -186,12 +193,13 @@ export function TranscriptPanel({
             language: lang?.whisper,
             speakers: Number(speakers) || undefined,
             diarize: Number(speakers) !== 1,
+            modelHost: getModelHost() || undefined,
           },
           (msg) => {
             if (msg.type === "progress") setProgress({ label: msg.label, value: msg.progress });
           },
         );
-        const { segments, device } = await job.current.result;
+        const { segments, device, warning } = await job.current.result;
         applyTranscription(
           segments.map((x) => ({
             start: Math.round(x.start * 1000),
@@ -200,6 +208,7 @@ export function TranscriptPanel({
             text: x.text,
           })),
         );
+        if (warning) setError(warning);
         if (device === "wasm") {
           setInfo((cur) => `${cur ?? ""} (Calcul sur processeur : activez WebGPU dans Chrome/Edge pour aller plus vite.)`);
         }
@@ -247,7 +256,30 @@ export function TranscriptPanel({
 
   return (
     <>
-      {error && <div className="alert error">{error}</div>}
+      {error && (
+        <div className="alert error">
+          {error}
+          <div style={{ marginTop: 8 }}>
+            <button
+              className="chip"
+              onClick={() => {
+                const nav = navigator as Navigator & { deviceMemory?: number };
+                const report = [
+                  `MonMeeting — diagnostic de transcription (${new Date().toISOString()})`,
+                  `Erreur : ${error}`,
+                  `Moteur : ${engine === "local" ? `sur l'appareil (${localModel})` : "Mon API"}`,
+                  `Enregistrement : ${meeting.audioMime ?? "?"}, ${meeting.audioChunks} fragment(s), ${formatTimestamp(meeting.durationMs)}`,
+                  `Navigateur : ${navigator.userAgent}`,
+                  `Mémoire : ${nav.deviceMemory ?? "?"} Go · WebGPU : ${"gpu" in navigator ? "présent" : "absent"} · Isolation : ${self.crossOriginIsolated}`,
+                ].join("\n");
+                void navigator.clipboard.writeText(report).then(() => setInfo("Diagnostic copié : collez-le dans votre message."));
+              }}
+            >
+              ⧉ Copier le diagnostic
+            </button>
+          </div>
+        </div>
+      )}
       {info && <div className="alert info">{info}</div>}
 
       <div className="card">

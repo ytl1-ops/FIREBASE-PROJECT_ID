@@ -40,6 +40,21 @@ export function saveApiSettings(url: string, token: string) {
   }
 }
 
+const MODEL_HOST_KEY = "monmeeting.modelHost";
+
+/** Serveur des modèles de transcription sur l'appareil (vide = Hugging Face). */
+export function getModelHost(): string {
+  return readSetting(MODEL_HOST_KEY);
+}
+
+export function saveModelHost(host: string) {
+  try {
+    localStorage.setItem(MODEL_HOST_KEY, host.trim());
+  } catch {
+    // stockage indisponible
+  }
+}
+
 function apiUrl(path: string): string {
   return `${getApiSettings().url}${path}`;
 }

@@ -6,6 +6,7 @@ import { navigate } from "../App.tsx";
 import { appendAudioChunk, createMeeting, listMeetings, saveMeeting, type Meeting } from "../lib/db.ts";
 import { ACCEPTED_FILES, readAttachment } from "../lib/attachments.ts";
 import { defaultMeetingInfo } from "../lib/meeting.ts";
+import { importFullBackup, isFullBackup } from "../lib/backup.ts";
 import { importMeetingPackage, PasswordRequiredError } from "../lib/share.ts";
 
 function audioDuration(file: Blob): Promise<number> {
@@ -51,6 +52,24 @@ export function HomePage() {
 
   async function importPackage(file: File) {
     setError(null);
+    if (isFullBackup(file.name)) {
+      try {
+        let n: number;
+        try {
+          n = await importFullBackup(file);
+        } catch (err) {
+          if (!(err instanceof PasswordRequiredError)) throw err;
+          const password = window.prompt("Sauvegarde chiffrée. Mot de passe :");
+          if (!password) return;
+          n = await importFullBackup(file, password);
+        }
+        setMeetings(await listMeetings());
+        window.alert(`${n} réunion(s) restaurée(s).`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
     try {
       let meeting;
       try {
@@ -156,7 +175,7 @@ export function HomePage() {
             <input
               ref={packageInput}
               type="file"
-              accept=".monmeeting,application/json"
+              accept=".monmeeting,.mmbackup,application/json,application/octet-stream"
               hidden
               onChange={(e) => {
                 const file = e.target.files?.[0];

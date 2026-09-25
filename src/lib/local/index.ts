@@ -20,7 +20,7 @@ export async function decodeAudio(blob: Blob): Promise<Float32Array> {
 }
 
 export interface LocalJob {
-  result: Promise<{ segments: LocalSegment[]; device: string }>;
+  result: Promise<{ segments: LocalSegment[]; device: string; warning?: string }>;
   cancel: () => void;
 }
 
@@ -31,13 +31,13 @@ export function runLocalTranscription(
 ): LocalJob {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   let reject: (err: Error) => void = () => {};
-  const result = new Promise<{ segments: LocalSegment[]; device: string }>((resolve, rej) => {
+  const result = new Promise<{ segments: LocalSegment[]; device: string; warning?: string }>((resolve, rej) => {
     reject = rej;
     worker.onmessage = (event: MessageEvent<LocalResponse>) => {
       const msg = event.data;
       onMessage(msg);
       if (msg.type === "done") {
-        resolve({ segments: msg.segments, device: msg.device });
+        resolve({ segments: msg.segments, device: msg.device, warning: msg.warning });
         worker.terminate();
       } else if (msg.type === "error") {
         rej(new Error(msg.message));

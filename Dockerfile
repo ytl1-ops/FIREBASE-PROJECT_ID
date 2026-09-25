@@ -12,7 +12,7 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production PORT=8787
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts --omit=dev && npm install --no-save --ignore-scripts tsx \
+RUN npm ci --ignore-scripts --omit=dev && npm install --no-save --omit=dev --ignore-scripts tsx \
     && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server ./server

@@ -9,7 +9,9 @@ import { RecorderPanel } from "../components/RecorderPanel.tsx";
 import { SharePanel } from "../components/SharePanel.tsx";
 import { TranscriptPanel } from "../components/TranscriptPanel.tsx";
 import type { Health } from "../lib/api.ts";
-import { deleteMeeting, getMeeting, saveMeeting, type Meeting } from "../lib/db.ts";
+import { countAudioChunks, deleteMeeting, getMeeting, saveMeeting, type Meeting } from "../lib/db.ts";
+import { setRecordingActive } from "../lib/recordingGuard.ts";
+import { backupMeetingToFolder, requestPersistentStorage } from "../lib/backup.ts";
 
 const TABS = [
   { id: "enregistrement", label: "● Enregistrement" },
@@ -40,10 +42,20 @@ export function MeetingPage({
   const dirty = useRef(false);
 
   useEffect(() => {
-    void getMeeting(id).then((m) => setMeeting(m ?? null));
+    void getMeeting(id).then(async (m) => {
+      // Réparation : fragments audio présents mais compteur non enregistré (coupure en cours
+      // d'enregistrement) — l'audio redevient visible.
+      if (m && !m.audioChunks) {
+        const count = await countAudioChunks(m.id);
+        if (count) m = await saveMeeting({ ...m, audioChunks: count });
+      }
+      setMeeting(m ?? null);
+    });
   }, [id]);
 
-  // Sauvegarde automatique, groupée.
+  // Sauvegarde automatique, groupée ; jamais perdue en quittant la page ou l'onglet.
+  const latest = useRef<Meeting | null>(null);
+  latest.current = meeting ?? null;
   useEffect(() => {
     if (!meeting || !dirty.current) return;
     const timer = window.setTimeout(() => {
@@ -52,6 +64,31 @@ export function MeetingPage({
     }, 400);
     return () => window.clearTimeout(timer);
   }, [meeting]);
+  // Copie automatique dans le dossier de sauvegarde (PC), 15 s après la dernière modification
+  // et jamais pendant un enregistrement.
+  useEffect(() => {
+    if (!meeting || recording) return;
+    const timer = window.setTimeout(() => void backupMeetingToFolder(meeting).catch(() => {}), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [meeting, recording]);
+
+  useEffect(() => {
+    void requestPersistentStorage();
+  }, []);
+
+  useEffect(() => {
+    const flush = () => {
+      if (dirty.current && latest.current) {
+        dirty.current = false;
+        void saveMeeting(latest.current);
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
 
   const update: UpdateMeeting = useCallback((fn) => {
     dirty.current = true;
@@ -59,6 +96,7 @@ export function MeetingPage({
   }, []);
 
   useEffect(() => {
+    setRecordingActive(recording);
     if (!recording) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", warn);

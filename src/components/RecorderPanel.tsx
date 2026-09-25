@@ -7,13 +7,17 @@ import {
   deviceErrorMessage,
   isVideoMode,
   MeetingRecorder,
+  QUALITY_PRESETS,
   recordingSupported,
   type CaptureMode,
+  type Quality,
 } from "../lib/recorder.ts";
+
+const QUALITY_KEY = "monmeeting.quality";
 import { LiveSpeech, liveSpeechSupported } from "../lib/speech.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
-type Status = "idle" | "recording" | "paused" | "stopping";
+type Status = "idle" | "starting" | "recording" | "paused" | "stopping";
 
 export function RecorderPanel({
   meeting,
@@ -28,8 +32,18 @@ export function RecorderPanel({
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const [mode, setMode] = useState<CaptureMode>("micro");
+  const [quality, setQuality] = useState<Quality>(() => {
+    try {
+      const saved = localStorage.getItem(QUALITY_KEY) as Quality | null;
+      return saved && saved in QUALITY_PRESETS ? saved : "econome";
+    } catch {
+      return "econome";
+    }
+  });
   const [lang, setLang] = useState("fr-FR");
-  const [livePreview, setLivePreview] = useState(liveSpeechSupported());
+  const [livePreview, setLivePreview] = useState(
+    () => liveSpeechSupported() && !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
+  );
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -85,6 +99,7 @@ export function RecorderPanel({
   }
 
   async function start() {
+    if (status !== "idle") return; // double appui : un seul enregistrement
     setError(null);
     setJustStopped(false);
     if (meeting.audioChunks > 0) {
@@ -110,11 +125,13 @@ export function RecorderPanel({
       onError: setError,
     });
 
+    setStatus("starting");
     try {
-      await rec.start(mode, deviceId || undefined);
+      await rec.start(mode, deviceId || undefined, quality);
     } catch (err) {
       setError(deviceErrorMessage(err, mode));
       await rec.stop();
+      setStatus("idle");
       return;
     }
 
@@ -211,12 +228,32 @@ export function RecorderPanel({
               <option value="camera">Vidéo — caméra + microphone</option>
               <option value="ecran">Vidéo — écran partagé + micro + son (visio, présentation)</option>
             </select>
-            {isVideoMode(mode) && (
-              <p className="muted small" style={{ margin: "4px 0 0" }}>
-                Environ 300 Mo par heure (audio seul : 15 Mo/h), stockés dans ce navigateur. La
-                transcription et les documents utilisent la piste audio.
-              </p>
-            )}
+          </div>
+          <div>
+            <label htmlFor="quality">Taille des fichiers</label>
+            <select
+              id="quality"
+              value={quality}
+              onChange={(e) => {
+                const q = e.target.value as Quality;
+                setQuality(q);
+                try {
+                  localStorage.setItem(QUALITY_KEY, q);
+                } catch {
+                  // réglage non mémorisé
+                }
+              }}
+            >
+              {(Object.keys(QUALITY_PRESETS) as Quality[]).map((q) => (
+                <option key={q} value={q}>
+                  {QUALITY_PRESETS[q].label} — ≈{" "}
+                  {isVideoMode(mode) ? QUALITY_PRESETS[q].sizes.video : QUALITY_PRESETS[q].sizes.audio} Mo/heure
+                </option>
+              ))}
+            </select>
+            <p className="muted small" style={{ margin: "4px 0 0" }}>
+              « Économe » suffit pour la transcription et les documents.
+            </p>
           </div>
           <div>
             <label htmlFor="device">Microphone</label>
@@ -282,6 +319,7 @@ export function RecorderPanel({
             </button>
           </>
         )}
+        {status === "starting" && <span className="muted">Autorisation du micro…</span>}
         {status === "stopping" && <span className="muted">Finalisation de l'audio…</span>}
       </div>
 

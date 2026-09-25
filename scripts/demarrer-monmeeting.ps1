@@ -1,6 +1,8 @@
-# Démarre MonMeeting sur ce PC (Windows) : interface, transcription et rédaction 100 % locales,
+﻿# Démarre MonMeeting sur ce PC (Windows) : interface, transcription et rédaction 100 % locales,
 # plus une adresse https temporaire pour les téléphones. Prérequis : Docker Desktop.
-$ErrorActionPreference = "Stop"
+# « Continue » : Docker écrit sa progression sur la sortie d'erreur, ce qui interromprait
+# Windows PowerShell 5.1 en mode « Stop ». Les échecs sont testés via $LASTEXITCODE.
+$ErrorActionPreference = "Continue"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 Write-Host "=== MonMeeting : démarrage ===" -ForegroundColor Cyan
@@ -25,6 +27,17 @@ if (-not (Test-Path ".env")) {
   "MONMEETING_API_TOKEN=$token" | Out-File -Encoding ascii ".env"
 }
 $token = (Select-String -Path ".env" -Pattern "^MONMEETING_API_TOKEN=(.+)$").Matches[0].Groups[1].Value
+
+# Modèles adaptés à la mémoire du PC (Docker Desktop en utilise environ la moitié).
+if (-not (Select-String -Path ".env" -Pattern "^OLLAMA_MODEL=" -Quiet)) {
+  $ramGo = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+  if ($ramGo -ge 24) { $llm = "qwen2.5:7b"; $whisper = "small" }
+  elseif ($ramGo -ge 12) { $llm = "qwen2.5:3b"; $whisper = "small" }
+  else { $llm = "qwen2.5:1.5b"; $whisper = "base" }
+  Add-Content -Path ".env" -Encoding ascii -Value "OLLAMA_MODEL=$llm"
+  Add-Content -Path ".env" -Encoding ascii -Value "WHISPER_MODEL=$whisper"
+  Write-Host "Mémoire détectée : $ramGo Go -> rédaction $llm, transcription Whisper $whisper"
+}
 
 Write-Host "Construction et démarrage (le premier lancement télécharge plusieurs Go : 10 à 30 min)..."
 docker compose --profile partage up -d --build

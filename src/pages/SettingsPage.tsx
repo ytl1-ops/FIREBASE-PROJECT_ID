@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchHealth, getApiSettings, saveApiSettings, type Health } from "../lib/api.ts";
+import { StorageSettings } from "../components/StorageSettings.tsx";
+import { fetchHealth, getApiSettings, getModelHost, saveApiSettings, saveModelHost, type Health } from "../lib/api.ts";
 
 export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => void }) {
   const initial = getApiSettings();
@@ -9,6 +10,7 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
   const [token, setToken] = useState(params.get("jeton") ?? initial.token);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [modelHost, setModelHost] = useState(getModelHost);
 
   async function test() {
     const clean = url.trim().replace(/\/+$/, "");
@@ -47,6 +49,8 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
   return (
     <div className="card stack">
       <h1>Réglages</h1>
+      <StorageSettings />
+      <hr style={{ border: "none", borderTop: "1px solid var(--border)", width: "100%" }} />
       <div>
         <h2>Mon API (serveur MonMeeting)</h2>
         <p className="muted small">
@@ -85,6 +89,24 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
         </a>
       </div>
       {status && <div className={`alert ${status.ok ? "info" : "error"}`}>{status.text}</div>}
+
+      <div>
+        <h2>Transcription sur l'appareil</h2>
+        <label htmlFor="model-host">Serveur de modèles (facultatif)</label>
+        <input
+          id="model-host"
+          type="url"
+          inputMode="url"
+          placeholder="https://huggingface.co (par défaut)"
+          value={modelHost}
+          onChange={(e) => setModelHost(e.target.value)}
+          onBlur={() => saveModelHost(modelHost)}
+        />
+        <p className="muted small">
+          Pour une entreprise dont le réseau bloque Hugging Face : adresse d'un miroir interne des
+          modèles Whisper. Les modèles sont téléchargés une fois puis conservés sur l'appareil.
+        </p>
+      </div>
     </div>
   );
 }

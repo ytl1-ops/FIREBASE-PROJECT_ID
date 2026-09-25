@@ -11,6 +11,13 @@ if [ ! -f .env ]; then
   chmod 600 .env
 fi
 TOKEN=$(sed -n 's/^MONMEETING_API_TOKEN=//p' .env)
+if ! grep -q '^OLLAMA_MODEL=' .env; then
+  RAM_GO=$(awk '/MemTotal/ {printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+  [ "$RAM_GO" -eq 0 ] && RAM_GO=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 17179869184) / 1073741824 ))
+  if [ "$RAM_GO" -ge 24 ]; then LLM=qwen2.5:7b; W=small; elif [ "$RAM_GO" -ge 12 ]; then LLM=qwen2.5:3b; W=small; else LLM=qwen2.5:1.5b; W=base; fi
+  printf 'OLLAMA_MODEL=%s\nWHISPER_MODEL=%s\n' "$LLM" "$W" >> .env
+  echo "Mémoire détectée : ${RAM_GO} Go -> rédaction $LLM, transcription Whisper $W"
+fi
 
 echo "Démarrage (le premier lancement télécharge plusieurs Go)…"
 docker compose --profile partage up -d --build

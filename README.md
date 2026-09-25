@@ -106,12 +106,25 @@ Build « entreprise » (aucune fonction ne transmet de données hors de l'organi
 
 ## Poids des fichiers
 
-| Élément | Poids |
-|---|---|
-| Audio de réunion (Opus mono 32 kbit/s) | ≈ 15 Mo par heure |
-| Vidéo caméra 480p / écran partagé | ≈ 270 / 360 Mo par heure |
-| Réunion partagée `.monmeeting` | ≈ taille de l'enregistrement (compressée, chiffrement facultatif) |
-| Moteur de transcription sur l'appareil | 14 Mo (27 Mo avec carte graphique), servi par l'application |
+Réglage « Taille des fichiers » à l'enregistrement (mesures réelles, par heure) :
+
+| Réglage | Audio | Vidéo caméra |
+|---|---|---|
+| **Économe** (par défaut) | ≈ 2 à 4 Mo | ≈ 20 à 60 Mo |
+| Standard | ≈ 5 à 7 Mo | ≈ 55 à 150 Mo |
+| Haute qualité | ≈ 10 à 15 Mo | ≈ 285 Mo |
+
+Réunions partagées `.monmeeting` : compressées, à peine plus lourdes que l'enregistrement.
+
+## Où sont stockées les données
+
+**Sur votre téléphone ou votre ordinateur, jamais sur un serveur.** Réglages (⚙) → « Stockage
+sur cet appareil » :
+- **stockage permanent** : le navigateur ne peut plus effacer les réunions faute de place ;
+- **dossier de sauvegarde automatique** (ordinateur, Chrome/Edge) : chaque réunion est recopiée
+  en fichier dans le dossier choisi ;
+- **sauvegarde complète** en un fichier `.mmbackup` (chiffrement facultatif) et **restauration**,
+  par exemple pour changer de téléphone.
 
 ## Confidentialité
 

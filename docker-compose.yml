@@ -38,15 +38,18 @@ services:
     image: ollama/ollama:latest
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "sleep 5 && ollama pull ${OLLAMA_MODEL:-qwen2.5:7b}"]
+    entrypoint:
+      - sh
+      - -c
+      - until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull ${OLLAMA_MODEL:-qwen2.5:7b}
     depends_on: [ollama]
-    restart: "no"
+    restart: on-failure
 
   # Adresse https publique temporaire (Cloudflare Quick Tunnel, gratuit, sans compte)
   # pour utiliser MonMeeting depuis les téléphones. Protégée par le jeton d'API.
   tunnel:
     image: cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate --url http://app:8787
+    command: tunnel --url http://app:8787
     restart: unless-stopped
     depends_on: [app]
     profiles: [partage]

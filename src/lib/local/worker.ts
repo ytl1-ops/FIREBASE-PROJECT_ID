@@ -47,8 +47,12 @@ function downloadProgress(label: string) {
 }
 
 async function transcribe(req: LocalRequest) {
-  const { audio, model, language, speakers, diarize } = req;
-  const webgpu = await hasWebGpu();
+  const { audio, model, language, speakers, diarize, modelHost } = req;
+  // Serveur de modèles : Hugging Face par défaut, ou miroir interne (entreprise).
+  if (modelHost) env.remoteHost = modelHost.replace(/\/?$/, "/");
+  // Téléphones : WebGPU encore instable sur beaucoup de puces mobiles ; le processeur est sûr.
+  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  const webgpu = !mobile && (await hasWebGpu());
   const onnx = env.backends.onnx;
   if (onnx?.wasm) {
     onnx.wasm.wasmPaths = webgpu ? { mjs: ortAsyncifyMjs, wasm: ortAsyncifyWasm } : { mjs: ortMjs, wasm: ortWasm };
@@ -94,8 +98,23 @@ async function transcribe(req: LocalRequest) {
   }
   await asr.dispose();
 
-  // 2 & 3. Identification des voix.
+  // 2 & 3. Identification des voix. En cas d'échec (modèle indisponible, mémoire), la
+  // transcription est conservée avec un seul locuteur plutôt que perdue.
+  let warning: string | undefined;
   if (diarize && segments.length > 1 && speakers !== 1) {
+    try {
+      await identifySpeakers(audio, segments, speakers);
+    } catch (err) {
+      segments.forEach((seg) => (seg.speaker = 0));
+      warning = `Voix non séparées (${err instanceof Error ? err.message : err}) : attribuez les intervenants à la main.`;
+    }
+  }
+
+  post({ type: "done", segments, device: webgpu ? "webgpu" : "wasm", warning });
+}
+
+async function identifySpeakers(audio: Float32Array, segments: LocalSegment[], speakers: number | undefined) {
+  {
     post({ type: "progress", phase: "download", label: "Modèle d'empreinte vocale", progress: 0 });
     const processor = await AutoProcessor.from_pretrained(SPEAKER_MODEL, {
       progress_callback: downloadProgress("Modèle d'empreinte vocale"),
@@ -132,8 +151,6 @@ async function transcribe(req: LocalRequest) {
       else seg.speaker = last;
     });
   }
-
-  post({ type: "done", segments, device: webgpu ? "webgpu" : "wasm" });
 }
 
 self.onmessage = (event: MessageEvent<LocalRequest>) => {

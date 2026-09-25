@@ -8,6 +8,8 @@ export interface LocalRequest {
   language?: string;
   speakers?: number;
   diarize: boolean;
+  /** Serveur de modèles (défaut : Hugging Face) — miroir interne possible. */
+  modelHost?: string;
 }
 
 export interface LocalSegment {
@@ -20,7 +22,7 @@ export interface LocalSegment {
 export type LocalResponse =
   | { type: "progress"; phase: "download" | "transcribe" | "speakers"; label: string; progress: number }
   | { type: "partial"; segments: LocalSegment[] }
-  | { type: "done"; segments: LocalSegment[]; device: string }
+  | { type: "done"; segments: LocalSegment[]; device: string; warning?: string }
   | { type: "error"; message: string };
 
 export const LOCAL_MODELS = [

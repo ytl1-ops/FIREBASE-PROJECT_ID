@@ -70,8 +70,11 @@ export async function appendAudioChunk(meetingId: string, index: number, chunk: 
   await (await db()).put("audio", chunk, [meetingId, index]);
 }
 
+export async function countAudioChunks(meetingId: string): Promise<number> {
+  return (await db()).count("audio", IDBKeyRange.bound([meetingId, 0], [meetingId, Infinity]));
+}
+
 export async function getAudio(meeting: Meeting): Promise<Blob | null> {
-  if (!meeting.audioChunks) return null;
   const chunks = await (await db()).getAll(
     "audio",
     IDBKeyRange.bound([meeting.id, 0], [meeting.id, Infinity]),

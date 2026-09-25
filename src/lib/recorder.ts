@@ -30,6 +30,43 @@ export function deviceErrorMessage(err: unknown, mode?: CaptureMode): string {
   }
 }
 
+/** Compromis taille / qualité des enregistrements. */
+export type Quality = "econome" | "standard" | "haute";
+
+interface QualityPreset {
+  label: string;
+  audioBps: number;
+  camera: { width: number; height: number; fps: number; bps: number };
+  screen: { fps: number; bps: number };
+  /** Estimation affichée : audio seul / vidéo caméra, en Mo par heure. */
+  sizes: { audio: number; video: number };
+}
+
+export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
+  // Opus 8 kbit/s : voix parfaitement intelligible et transcriptible, ≈ 4 Mo/h.
+  econome: {
+    label: "Économe",
+    audioBps: 8_000,
+    camera: { width: 480, height: 270, fps: 12, bps: 120_000 },
+    screen: { fps: 5, bps: 200_000 },
+    sizes: { audio: 4, video: 60 },
+  },
+  standard: {
+    label: "Standard",
+    audioBps: 16_000,
+    camera: { width: 640, height: 360, fps: 15, bps: 300_000 },
+    screen: { fps: 8, bps: 450_000 },
+    sizes: { audio: 7, video: 150 },
+  },
+  haute: {
+    label: "Haute qualité",
+    audioBps: 32_000,
+    camera: { width: 854, height: 480, fps: 24, bps: 600_000 },
+    screen: { fps: 10, bps: 800_000 },
+    sizes: { audio: 15, video: 285 },
+  },
+};
+
 export const isVideoMode = (mode: CaptureMode) => mode === "camera" || mode === "ecran";
 
 export interface RecorderCallbacks {
@@ -103,7 +140,8 @@ export class MeetingRecorder {
     }
   }
 
-  async start(mode: CaptureMode, deviceId?: string) {
+  async start(mode: CaptureMode, deviceId?: string, quality: Quality = "econome") {
+    const preset = QUALITY_PRESETS[quality];
     let mic: MediaStream | null = null;
     if (mode !== "onglet") {
       try {
@@ -136,7 +174,12 @@ export class MeetingRecorder {
     if (mode === "camera") {
       const cam = await navigator.mediaDevices.getUserMedia({
         // 480p suffit pour une réunion filmée et divise le poids par ~2 par rapport au 720p.
-        video: { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: "user" },
+        video: {
+          width: { ideal: preset.camera.width },
+          height: { ideal: preset.camera.height },
+          frameRate: { ideal: preset.camera.fps, max: 30 },
+          facingMode: "user",
+        },
       });
       this.streams.push(cam);
       videoTrack = cam.getVideoTracks()[0];
@@ -146,7 +189,7 @@ export class MeetingRecorder {
       // Capture de l'onglet/écran partagé (Teams, Zoom, Meet dans le navigateur).
       // Écran : 10 images/s suffisent (contenu majoritairement fixe) et gardent le texte net.
       const display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 10, max: 15 }, width: { max: 1920 }, height: { max: 1080 } },
+        video: { frameRate: { ideal: preset.screen.fps, max: 15 }, width: { max: 1920 }, height: { max: 1080 } },
         audio: true,
       });
       this.streams.push(display);
@@ -182,10 +225,9 @@ export class MeetingRecorder {
     this.mimeType = pickMimeType(Boolean(videoTrack)) ?? (videoTrack ? "video/webm" : "audio/webm");
     this.recorder = new MediaRecorder(new MediaStream(tracks), {
       mimeType: this.mimeType,
-      // Opus mono à 32 kbit/s : qualité « voix » transparente, ≈ 14 Mo par heure.
-      audioBitsPerSecond: 32_000,
-      // Vidéo : ≈ 270 Mo/h (caméra 480p) ou ≈ 360 Mo/h (écran), texte et visages lisibles.
-      ...(videoTrack ? { videoBitsPerSecond: mode === "ecran" ? 800_000 : 600_000 } : {}),
+      // Opus mono : débit selon le réglage « Taille des fichiers ».
+      audioBitsPerSecond: preset.audioBps,
+      ...(videoTrack ? { videoBitsPerSecond: mode === "ecran" ? preset.screen.bps : preset.camera.bps } : {}),
     });
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.callbacks.onChunk(e.data, this.chunkIndex++);
