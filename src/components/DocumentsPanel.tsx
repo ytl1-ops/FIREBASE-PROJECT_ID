@@ -7,6 +7,7 @@ import { AttachmentsCard } from "./AttachmentsCard.tsx";
 import type { Meeting } from "../lib/db.ts";
 import { exportDocx, exportMarkdown, printDocument } from "../lib/export.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
+import { ENTERPRISE_MODE } from "../lib/config.ts";
 import { isNativeApp } from "../lib/share.ts";
 import type { UpdateMeeting } from "../pages/MeetingPage.tsx";
 
@@ -150,10 +151,15 @@ export function DocumentsPanel({
           les propos leur seront attribués sous la forme « Locuteur N ».
         </div>
       )}
-      {!health?.apiKeyConfigured && (
+      {!health?.generation.available && (
         <div className="alert info">
-          Rédaction automatique non configurée : utilisez <strong>« Mode gratuit (Claude.ai) »</strong>
-          — la demande est copiée, vous la collez dans Claude.ai puis recollez le document ici.
+          Rédaction automatique indisponible : connectez « Mon API » dans les Réglages (⚙)
+          {ENTERPRISE_MODE ? "." : (
+            <>
+              , ou utilisez <strong>« Mode gratuit (Claude.ai) »</strong> — la demande est copiée,
+              vous la collez dans Claude.ai puis recollez le document ici.
+            </>
+          )}
         </div>
       )}
 
@@ -170,7 +176,7 @@ export function DocumentsPanel({
           {streaming === null ? (
             <button
               className="primary"
-              disabled={!hasMaterial || !health?.apiKeyConfigured}
+              disabled={!hasMaterial || !health?.generation.available}
               onClick={() => void generate()}
             >
               ✦ {saved ? "Régénérer" : "Rédiger"} le {def.label.toLowerCase()}
@@ -178,7 +184,7 @@ export function DocumentsPanel({
           ) : (
             <button onClick={() => abort.current?.abort()}>■ Arrêter la rédaction</button>
           )}
-          {streaming === null && (
+          {streaming === null && !ENTERPRISE_MODE && (
             <button
               disabled={!hasMaterial}
               onClick={() => void copyPrompt()}

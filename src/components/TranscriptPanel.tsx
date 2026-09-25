@@ -41,7 +41,9 @@ export function TranscriptPanel({
     ].join(", "),
   );
   const [busy, setBusy] = useState(false);
-  const [engine, setEngine] = useState<"local" | "gladia">("local");
+  const [engine, setEngine] = useState<"local" | "server">(() =>
+    health?.transcription.available ? "server" : "local",
+  );
   const [localModel, setLocalModel] = useState<string>(defaultLocalModel);
   const [progress, setProgress] = useState<{ label: string; value: number } | null>(null);
   const job = useRef<LocalJob | null>(null);
@@ -155,13 +157,20 @@ export function TranscriptPanel({
     setBusy(true);
     setError(null);
     try {
-      if (engine === "gladia") {
-        setInfo("Transcription en cours… comptez environ 1 minute pour 30 minutes d'audio.");
-        const result = await transcribeAudio(audio, {
-          languages,
-          speakers: Number(speakers) || undefined,
-          vocabulary: vocabulary.split(/[,\n;]/),
-        });
+      if (engine === "server") {
+        setInfo("Transcription sur « Mon API » : vous pouvez continuer à utiliser l'application pendant le traitement.");
+        const controller = new AbortController();
+        job.current = { result: Promise.resolve({ segments: [], device: "" }), cancel: () => controller.abort() };
+        const result = await transcribeAudio(
+          audio,
+          {
+            languages,
+            speakers: Number(speakers) || undefined,
+            vocabulary: vocabulary.split(/[,\n;]/),
+          },
+          (p) => setProgress({ label: p.label, value: p.progress }),
+          controller.signal,
+        );
         applyTranscription(result.segments);
       } else {
         setInfo(
@@ -285,11 +294,11 @@ export function TranscriptPanel({
                 Sur cet appareil — gratuit, hors ligne
               </button>
               <button
-                className={`chip ${engine === "gladia" ? "active" : ""}`}
-                onClick={() => setEngine("gladia")}
+                className={`chip ${engine === "server" ? "active" : ""}`}
+                onClick={() => setEngine("server")}
                 disabled={busy}
               >
-                Service Gladia — serveur
+                Mon API — serveur MonMeeting
               </button>
             </div>
             {engine === "local" ? (
@@ -299,16 +308,22 @@ export function TranscriptPanel({
                 processeur, bien plus rapide avec une carte graphique (Chrome/Edge).
               </p>
             ) : (
-              !health?.transcriptionConfigured && (
-                <div className="alert warn" style={{ marginTop: 10 }}>
-                  Service non configuré sur le serveur (variable GLADIA_API_KEY). Utilisez la
-                  transcription sur cet appareil, gratuite.
-                </div>
-              )
+              <>
+                <p className="muted small">
+                  🔒 Transcription par votre propre serveur (Whisper + identification des voix) :
+                  plus rapide et plus précise qu'un téléphone, sans service tiers.
+                </p>
+                {!health?.transcription.available && (
+                  <div className="alert warn" style={{ marginTop: 10 }}>
+                    « Mon API » n'est pas connectée ou pas prête. Renseignez son adresse dans les
+                    Réglages (⚙), ou utilisez la transcription sur cet appareil.
+                  </div>
+                )}
+              </>
             )}
             <div className="grid-3" style={{ marginTop: 10 }}>
               <div>
-                <label>Langue{engine === "gladia" ? "(s)" : ""} parlée{engine === "gladia" ? "(s)" : ""}</label>
+                <label>Langue{engine === "server" ? "(s)" : ""} parlée{engine === "server" ? "(s)" : ""}</label>
                 <div className="row" style={{ gap: 4 }}>
                   {LANGUAGES.map((l) => (
                     <button
@@ -382,12 +397,12 @@ export function TranscriptPanel({
             <div className="row">
               <button
                 className="primary"
-                disabled={busy || (engine === "gladia" && !health?.transcriptionConfigured)}
+                disabled={busy || (engine === "server" && !health?.transcription.available)}
                 onClick={() => void runTranscription()}
               >
                 {busy ? "Transcription en cours…" : "Lancer la transcription"}
               </button>
-              {busy && engine === "local" && <button onClick={() => job.current?.cancel()}>Annuler</button>}
+              {busy && <button onClick={() => job.current?.cancel()}>Annuler</button>}
             </div>
           </details>
         )}

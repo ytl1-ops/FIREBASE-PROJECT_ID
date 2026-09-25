@@ -45,3 +45,22 @@ describe("paquet .monmeeting", () => {
     await expect(readMeetingPackage(new Blob(["{}"]))).rejects.toThrow("pas une réunion");
   });
 });
+
+describe("taille du paquet", () => {
+  it("reste proche de la taille de l'audio (pas d'inflation base64)", async () => {
+    const big = new Uint8Array(300_000);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 2654435761) >>> 24; // quasi aléatoire
+    const pkg = await buildMeetingPackage(meeting, new Blob([big], { type: "audio/webm" }), "motdepasse-solide");
+    expect(pkg.size).toBeLessThan(big.length * 1.08);
+    const { audio: a } = await readMeetingPackage(pkg, "motdepasse-solide");
+    expect(atob(a!.data).length).toBe(big.length);
+  });
+});
+
+describe("compatibilité v1", () => {
+  it("relit un ancien paquet JSON en clair", async () => {
+    const v1 = { format: "monmeeting", version: 1, title: "x", createdAt: "", encrypted: false, data: JSON.stringify({ meeting }) };
+    const { meeting: back } = await readMeetingPackage(new Blob([JSON.stringify(v1)]));
+    expect(back.info.title).toBe("Comité sûreté");
+  });
+});

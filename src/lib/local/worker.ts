@@ -10,10 +10,17 @@
 import {
   AutoModel,
   AutoProcessor,
+  env,
   pipeline,
   type AutomaticSpeechRecognitionPipeline,
   type ProgressInfo,
 } from "@huggingface/transformers";
+// Moteur ONNX servi par l'application elle-même (aucun téléchargement depuis un CDN tiers).
+// Variante simple (14 Mo) sur processeur ; variante « asyncify » (27 Mo) requise pour WebGPU.
+import ortAsyncifyMjs from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url";
+import ortAsyncifyWasm from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
+import ortMjs from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
+import ortWasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { clusterEmbeddings, isHallucination, isSilent, splitWindows } from "./signal.ts";
 import type { LocalRequest, LocalResponse, LocalSegment } from "./protocol.ts";
 
@@ -42,6 +49,12 @@ function downloadProgress(label: string) {
 async function transcribe(req: LocalRequest) {
   const { audio, model, language, speakers, diarize } = req;
   const webgpu = await hasWebGpu();
+  const onnx = env.backends.onnx;
+  if (onnx?.wasm) {
+    onnx.wasm.wasmPaths = webgpu ? { mjs: ortAsyncifyMjs, wasm: ortAsyncifyWasm } : { mjs: ortMjs, wasm: ortWasm };
+  }
+  // Import direct du moteur (pas de copie en « blob: »), compatible avec la CSP stricte.
+  env.useWasmCache = false;
 
   post({ type: "progress", phase: "download", label: "Modèle de transcription", progress: 0 });
   const asr = (await pipeline("automatic-speech-recognition", model, {

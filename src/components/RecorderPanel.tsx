@@ -213,8 +213,8 @@ export function RecorderPanel({
             </select>
             {isVideoMode(mode) && (
               <p className="muted small" style={{ margin: "4px 0 0" }}>
-                Environ 450 Mo par heure, stockés dans ce navigateur. La transcription et les
-                documents utilisent la piste audio.
+                Environ 300 Mo par heure (audio seul : 15 Mo/h), stockés dans ce navigateur. La
+                transcription et les documents utilisent la piste audio.
               </p>
             )}
           </div>

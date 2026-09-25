@@ -1,0 +1,56 @@
+# MonMeeting auto-hébergé : aucune dépendance à un service d'IA externe.
+#   Démarrage : scripts/demarrer-monmeeting (Windows : double-clic sur demarrer-monmeeting.bat)
+#   ou : docker compose --profile partage up -d
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      LLM_PROVIDER: ollama
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      TRANSCRIPTION_PROVIDER: local
+      ASR_URL: http://asr:8000
+      MONMEETING_API_TOKEN: ${MONMEETING_API_TOKEN:?Définissez MONMEETING_API_TOKEN dans .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://ytl1-ops.github.io}
+      TRUST_PROXY: "1"
+    # Accessible uniquement depuis ce PC ; l'accès distant passe par le tunnel chiffré.
+    ports:
+      - "127.0.0.1:8787:8787"
+    depends_on: [ollama, asr]
+
+  asr:
+    build: ./asr
+    restart: unless-stopped
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+    volumes:
+      - whisper:/models/whisper
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+
+  # Télécharge le modèle de rédaction au premier démarrage (quelques Go, une seule fois).
+  ollama-init:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "sleep 5 && ollama pull ${OLLAMA_MODEL:-qwen2.5:7b}"]
+    depends_on: [ollama]
+    restart: "no"
+
+  # Adresse https publique temporaire (Cloudflare Quick Tunnel, gratuit, sans compte)
+  # pour utiliser MonMeeting depuis les téléphones. Protégée par le jeton d'API.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://app:8787
+    restart: unless-stopped
+    depends_on: [app]
+    profiles: [partage]
+
+volumes:
+  ollama:
+  whisper:

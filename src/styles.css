@@ -49,6 +49,11 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1.02rem; }
 .topbar a { color: inherit; text-decoration: none; font-weight: 700; font-size: 1.1rem; display: flex; gap: 8px; align-items: center; }
 .topbar .spacer { flex: 1; }
 .topbar .status { font-size: .8rem; opacity: .85; }
+.topbar a.topbar-icon { width: 36px; height: 36px; border-radius: 50%; justify-content: center; border: 1px solid rgb(255 255 255 / 35%); font-size: 1rem; flex-shrink: 0; }
+.guide-step summary { cursor: pointer; font-weight: 700; font-size: 1.05rem; }
+.guide-step ul { margin: 10px 0 0; padding-left: 20px; }
+.guide-step li + li { margin-top: 6px; }
+.welcome { border-color: var(--accent); }
 
 main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 80px; }
 
@@ -159,6 +164,11 @@ mark { background: color-mix(in srgb, var(--warning) 35%, transparent); color: i
 
 @media (max-width: 640px) {
   .topbar .status { display: none; }
+  .topbar { padding: 10px 12px; }
+  main { padding: 14px 12px 80px; }
+  button, .btn { min-height: 44px; }
+  button.chip { min-height: 36px; }
+  input, select, textarea { font-size: 16px; } /* évite le zoom automatique sur iPhone */
   .document { padding: 16px; }
   .timer { font-size: 2.3rem; }
   .segment { grid-template-columns: 52px 1fr; }

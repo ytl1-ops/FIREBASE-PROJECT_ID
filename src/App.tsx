@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchHealth, type Health } from "./lib/api.ts";
+import { GuidePage } from "./pages/GuidePage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
 import { MeetingPage } from "./pages/MeetingPage.tsx";
 import { NewMeetingPage } from "./pages/NewMeetingPage.tsx";
+import { SettingsPage } from "./pages/SettingsPage.tsx";
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash.slice(1) || "/");
@@ -33,6 +35,8 @@ export function App() {
     const tab = new URLSearchParams(search).get("onglet") ?? undefined;
     page = <MeetingPage key={meetingMatch[1]} id={meetingMatch[1]} initialTab={tab} health={health ?? null} />;
   } else if (path === "/nouvelle") page = <NewMeetingPage />;
+  else if (path === "/aide") page = <GuidePage />;
+  else if (path === "/reglages") page = <SettingsPage onSaved={setHealth} />;
   else page = <HomePage />;
 
   return (
@@ -48,10 +52,16 @@ export function App() {
             ? ""
             : health === null
               ? "Mode autonome — transcription sur l'appareil, rédaction via Claude.ai"
-              : `Rédaction : ${health.apiKeyConfigured ? "active" : "clé API manquante"} · Transcription HD : ${
-                  health.transcriptionConfigured ? "active" : "non configurée"
+              : `Mon API : rédaction ${health.generation.available ? `✓ (${health.generation.model})` : "✗"} · transcription ${
+                  health.transcription.available ? "✓" : "✗"
                 }`}
         </span>
+        <a href="#/aide" className="topbar-icon" title="Prise en main" aria-label="Prise en main">
+          ?
+        </a>
+        <a href="#/reglages" className="topbar-icon" title="Réglages" aria-label="Réglages">
+          ⚙
+        </a>
       </header>
       <main>{page}</main>
     </>

@@ -1,0 +1,10 @@
+node_modules
+dist
+docs
+android
+ios
+asr
+tests
+.git
+*.log
+.env

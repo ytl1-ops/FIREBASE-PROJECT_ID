@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { buildAskManualPrompt } from "../../shared/prompts.ts";
 import type { AskMessage } from "../../shared/types.ts";
 import { askMeeting, type Health } from "../lib/api.ts";
+import { ENTERPRISE_MODE } from "../lib/config.ts";
 import type { Meeting } from "../lib/db.ts";
 import { markdownToHtml } from "../lib/markdown.ts";
 
@@ -25,7 +26,15 @@ export function AskPanel({ meeting, health }: { meeting: Meeting; health: Health
   const [copied, setCopied] = useState(false);
 
   // Sans clé API (mode autonome) : on copie la réunion pour l'interroger dans Claude.ai.
-  if (!health?.apiKeyConfigured) {
+  if (!health?.generation.available && ENTERPRISE_MODE) {
+    return (
+      <div className="card">
+        <h2>Demandez à votre réunion</h2>
+        <p className="muted">Connectez « Mon API » (serveur interne) dans les Réglages (⚙) pour interroger vos réunions.</p>
+      </div>
+    );
+  }
+  if (!health?.generation.available) {
     return (
       <div className="card">
         <h2>Demandez à votre réunion</h2>

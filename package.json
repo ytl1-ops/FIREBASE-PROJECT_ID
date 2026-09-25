@@ -11,7 +11,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "build:web": "vite build",
-    "build:pages": "vite build --outDir docs --emptyOutDir && touch docs/.nojekyll"
+    "build:pages": "vite build --outDir docs --emptyOutDir && touch docs/.nojekyll",
+    "build:entreprise": "VITE_MODE_ENTREPRISE=1 vite build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -28,7 +29,8 @@
     "multer": "^2.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "unpdf": "^1.8.1"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",

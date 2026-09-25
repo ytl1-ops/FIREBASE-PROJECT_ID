@@ -93,8 +93,42 @@ export function HomePage() {
       m.info.participants.some((p) => p.name.toLowerCase().includes(q)),
   );
 
+  const [welcome, setWelcome] = useState(() => {
+    try {
+      return !localStorage.getItem("monmeeting.welcomeSeen");
+    } catch {
+      return false;
+    }
+  });
+  const closeWelcome = () => {
+    setWelcome(false);
+    try {
+      localStorage.setItem("monmeeting.welcomeSeen", "1");
+    } catch {
+      // sans stockage, l'accueil réapparaîtra
+    }
+  };
+
   return (
     <>
+      {welcome && (
+        <div className="card welcome">
+          <h2>Bienvenue dans MonMeeting 👋</h2>
+          <p className="small" style={{ marginTop: 0 }}>
+            Enregistrez vos réunions, obtenez la transcription avec les intervenants, puis un PV,
+            un compte rendu, une note de synthèse ou un TBM prêts à partager. Tout reste sur votre
+            appareil.
+          </p>
+          <div className="row">
+            <a className="btn" href="#/aide" onClick={closeWelcome}>
+              📖 Guide de prise en main (2 min)
+            </a>
+            <button className="ghost" onClick={closeWelcome}>
+              Plus tard
+            </button>
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="row between">
           <div>

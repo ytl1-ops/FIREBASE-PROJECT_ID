@@ -1,10 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-import type { BetaMessageStream } from "@anthropic-ai/sdk/lib/BetaMessageStream";
-import type {
-  BetaContentBlockParam,
-  BetaMessageParam,
-} from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import express, { type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
@@ -13,9 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DOCUMENTS } from "../shared/documents.ts";
-import type { AskRequest, Attachment, GenerateRequest } from "../shared/types.ts";
 import { ASK_SYSTEM_PROMPT, SYSTEM_PROMPT, buildAskContext, buildUserPrompt } from "../shared/prompts.ts";
-import { transcribeFile, transcriptionConfigured } from "./transcription.ts";
+import type { AskRequest, Attachment, GenerateRequest } from "../shared/types.ts";
+import { LLM_PROVIDER, llmAvailable, llmModel, streamLlm } from "./llm.ts";
+import { TRANSCRIPTION_PROVIDER, getTranscription, startTranscription, transcriptionAvailable } from "./transcription.ts";
 
 // Charge .env s'il existe (Node ≥ 20.12).
 try {
@@ -24,50 +19,133 @@ try {
   // pas de fichier .env : variables d'environnement du système uniquement
 }
 
-const MODEL = process.env.MONMEETING_MODEL ?? "claude-opus-5";
 const PORT = Number(process.env.PORT ?? 8787);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../dist");
 
+/** Origines web autorisées à appeler l'API (ex. l'application publiée sur GitHub Pages). */
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+/** Jeton facultatif exigé sur les routes /api (recommandé dès que le serveur est exposé). */
+const API_TOKEN = process.env.MONMEETING_API_TOKEN?.trim() ?? "";
+/** Nombre de requêtes de rédaction / transcription par adresse IP et par minute. */
+const RATE_LIMIT = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 20);
+
 const app = express();
-// Les PDF joints sont transmis en base64 (limite de requête de l'API : 32 Mo).
+app.disable("x-powered-by");
+// Derrière un reverse proxy (Caddy, Nginx, tunnel) : adresse IP réelle du client.
+if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
+
+// ---------------------------------------------------------------- Sécurité HTTP
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Permissions-Policy", "microphone=(self), camera=(self), display-capture=(self), geolocation=()");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (!req.path.startsWith("/api/")) {
+    // Interface : scripts et styles servis par ce serveur uniquement ; modèles Whisper
+    // téléchargés depuis Hugging Face (transcription sur l'appareil).
+    res.setHeader(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "worker-src 'self' blob:",
+        "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join("; "),
+    );
+  }
+  next();
+});
+
+// CORS : seules les origines listées peuvent appeler l'API depuis un navigateur.
+app.use("/api", (req, res, next) => {
+  const origin = req.get("origin")?.replace(/\/$/, "");
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Max-Age", "600");
+  }
+  if (req.method === "OPTIONS") {
+    res.sendStatus(origin && ALLOWED_ORIGINS.includes(origin) ? 204 : 403);
+    return;
+  }
+  next();
+});
+
+function tokenOk(req: Request): boolean {
+  if (!API_TOKEN) return true;
+  const given = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+  const expected = Buffer.from(API_TOKEN);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+}
+
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health" || tokenOk(req)) return next();
+  res.status(401).json({ error: "Jeton d'API manquant ou invalide.", code: "token" });
+});
+
+// Limitation de débit en mémoire (par IP), sur les routes coûteuses.
+const hits = new Map<string, { count: number; reset: number }>();
+function rateLimit(req: Request, res: Response, next: NextFunction) {
+  const key = req.ip ?? "inconnu";
+  const now = Date.now();
+  const entry = hits.get(key);
+  if (!entry || entry.reset < now) {
+    hits.set(key, { count: 1, reset: now + 60_000 });
+    if (hits.size > 10_000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
+    return next();
+  }
+  if (++entry.count > RATE_LIMIT) {
+    res.setHeader("Retry-After", String(Math.ceil((entry.reset - now) / 1000)));
+    res.status(429).json({ error: "Trop de requêtes : patientez une minute." });
+    return;
+  }
+  next();
+}
+
+// Les PDF joints sont transmis en base64 : 32 Mo maximum par requête.
 app.use(express.json({ limit: "32mb" }));
 
-// Les fichiers audio transitent par un répertoire temporaire et sont supprimés après transcription.
-// L'extension d'origine est conservée : elle sert à identifier le format audio.
+// Fichiers audio/vidéo : répertoire temporaire, nom aléatoire, supprimés après traitement.
 const upload = multer({
   storage: multer.diskStorage({
     destination: os.tmpdir(),
-    filename: (_req, file, cb) =>
-      cb(null, `monmeeting-${crypto.randomUUID()}${path.extname(file.originalname) || ".webm"}`),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `monmeeting-${crypto.randomUUID()}${/^\.[a-z0-9]{2,5}$/.test(ext) ? ext : ".webm"}`);
+    },
   }),
-  limits: { fileSize: 1024 * 1024 * 1024 },
+  limits: { fileSize: 2 * 1024 * 1024 * 1024, files: 1, fields: 10 },
+  fileFilter: (_req, file, cb) => cb(null, /^(audio|video)\//.test(file.mimetype)),
 });
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  client ??= new Anthropic();
-  return client;
-}
+// ---------------------------------------------------------------- Routes
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (_req, res) => {
+  const [generation, transcription] = await Promise.all([llmAvailable(), transcriptionAvailable()]);
   res.json({
     ok: true,
-    model: MODEL,
-    apiKeyConfigured: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
-    transcriptionConfigured: transcriptionConfigured(),
+    tokenRequired: Boolean(API_TOKEN),
+    generation: { provider: LLM_PROVIDER, model: llmModel(), available: generation },
+    transcription: { provider: TRANSCRIPTION_PROVIDER, available: transcription },
   });
 });
 
-function sendEvent(res: Response, event: Record<string, unknown>) {
-  res.write(`data: ${JSON.stringify(event)}\n\n`);
-}
-
-function hasContent(body: {
-  transcript?: { text?: string }[];
-  notes?: string;
-  attachments?: Attachment[];
-}): boolean {
+function hasContent(body: { transcript?: { text?: string }[]; notes?: string; attachments?: Attachment[] }) {
   return (
     Boolean(body.transcript?.some((s) => s?.text?.trim())) ||
     Boolean(body.notes?.trim()) ||
@@ -75,22 +153,16 @@ function hasContent(body: {
   );
 }
 
-/** Les PDF joints sont transmis au modèle comme documents (texte et mise en page). */
-function pdfBlocks(attachments: Attachment[] | undefined): BetaContentBlockParam[] {
-  return (attachments ?? [])
-    .filter((a) => a.kind === "pdf" && a.data)
-    .map((a) => ({
-      type: "document",
-      title: a.name,
-      source: { type: "base64", media_type: "application/pdf", data: a.data! },
-    }));
+function validMeeting(meeting: unknown): boolean {
+  const m = meeting as GenerateRequest["meeting"] | undefined;
+  return Boolean(m && typeof m === "object" && Array.isArray(m.participants) && Array.isArray(m.agenda));
 }
 
 function validateGenerate(body: unknown): GenerateRequest | string {
   const req = body as Partial<GenerateRequest> | undefined;
   if (!req || typeof req !== "object") return "Requête invalide.";
   if (!DOCUMENTS.some((d) => d.type === req.type)) return "Type de document inconnu.";
-  if (!req.meeting || typeof req.meeting !== "object") return "Informations de réunion manquantes.";
+  if (!validMeeting(req.meeting)) return "Informations de réunion manquantes.";
   if (!Array.isArray(req.transcript)) return "Transcription manquante.";
   if (!hasContent(req)) return "Ni transcription, ni notes, ni fichier joint : rien à rédiger.";
   return req as GenerateRequest;
@@ -99,166 +171,110 @@ function validateGenerate(body: unknown): GenerateRequest | string {
 function validateAsk(body: unknown): AskRequest | string {
   const req = body as Partial<AskRequest> | undefined;
   if (!req || typeof req !== "object") return "Requête invalide.";
-  if (!req.meeting || !Array.isArray(req.transcript)) return "Réunion manquante.";
+  if (!validMeeting(req.meeting) || !Array.isArray(req.transcript)) return "Réunion manquante.";
   if (!req.question?.trim()) return "Question vide.";
-  if (!Array.isArray(req.history)) return "Historique invalide.";
+  if (!Array.isArray(req.history) || req.history.some((h) => h?.role !== "user" && h?.role !== "assistant")) {
+    return "Historique invalide.";
+  }
   if (!hasContent(req)) return "La réunion ne contient encore aucune transcription.";
   return req as AskRequest;
 }
 
-function errorMessage(err: unknown): string {
-  if (
-    err instanceof Anthropic.AuthenticationError ||
-    (err instanceof Error && err.message.includes("Could not resolve authentication method"))
-  ) {
-    return "Clé API Anthropic absente ou invalide : renseignez ANTHROPIC_API_KEY côté serveur.";
-  }
-  if (err instanceof Anthropic.RateLimitError) {
-    return "Limite de débit de l'API atteinte. Réessayez dans quelques instants.";
-  }
-  if (err instanceof Anthropic.BadRequestError) {
-    return `Requête refusée par l'API : ${err.message}`;
-  }
-  if (err instanceof Anthropic.APIConnectionError) {
-    return "Impossible de joindre l'API Anthropic (réseau).";
-  }
-  if (err instanceof Anthropic.APIError) {
-    return `Erreur de l'API (${err.status ?? "?"}) : ${err.message}`;
-  }
-  return err instanceof Error ? err.message : "Erreur inconnue.";
-}
-
-/** Diffuse la réponse de Claude en Server-Sent Events (`delta`, puis `done` ou `error`). */
-async function streamClaude(
-  res: Response,
-  system: string,
-  messages: BetaMessageParam[],
-  maxTokens: number,
-) {
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-  });
-
-  let stream: BetaMessageStream | null = null;
-  res.on("close", () => stream?.abort());
-
-  try {
-    stream = getClient().beta.messages.stream({
-      model: MODEL,
-      max_tokens: maxTokens,
-      thinking: { type: "adaptive" },
-      // En cas de refus par les filtres de sécurité, l'API relance la requête sur le
-      // modèle de repli recommandé au lieu d'échouer.
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages,
-    });
-
-    stream.on("text", (text) => sendEvent(res, { type: "delta", text }));
-    const message = await stream.finalMessage();
-
-    if (message.stop_reason === "refusal") {
-      sendEvent(res, { type: "error", message: "Le modèle a décliné cette demande." });
-    } else {
-      sendEvent(res, {
-        type: "done",
-        model: message.model,
-        truncated: message.stop_reason === "max_tokens",
-      });
-    }
-  } catch (err) {
-    if (!res.writableEnded && !(err instanceof Anthropic.APIUserAbortError)) {
-      console.error("[claude]", err);
-      sendEvent(res, { type: "error", message: errorMessage(err) });
-    }
-  } finally {
-    res.end();
-  }
-}
+const pdfs = (attachments: Attachment[] | undefined) => attachments?.filter((a) => a.kind === "pdf");
 
 /** Rédaction d'un document (PV, compte rendu, note de synthèse, TBM, relevé de décisions). */
-app.post("/api/generate", async (req, res) => {
+app.post("/api/generate", rateLimit, async (req, res) => {
   const parsed = validateGenerate(req.body);
   if (typeof parsed === "string") {
     res.status(400).json({ error: parsed });
     return;
   }
-  await streamClaude(
+  await streamLlm(
     res,
     SYSTEM_PROMPT,
-    [
-      {
-        role: "user",
-        content: [...pdfBlocks(parsed.attachments), { type: "text", text: buildUserPrompt(parsed) }],
-      },
-    ],
+    [{ role: "user", text: buildUserPrompt(parsed), pdfs: pdfs(parsed.attachments) }],
     32000,
   );
 });
 
 /** « Demandez à votre réunion » : questions-réponses sur la transcription. */
-app.post("/api/ask", async (req, res) => {
+app.post("/api/ask", rateLimit, async (req, res) => {
   const parsed = validateAsk(req.body);
   if (typeof parsed === "string") {
     res.status(400).json({ error: parsed });
     return;
   }
   const turns = [...parsed.history, { role: "user" as const, content: parsed.question }];
-  const messages: BetaMessageParam[] = turns.map((turn, index) =>
-    index === 0
-      ? {
-          role: "user",
-          content: [
-            ...pdfBlocks(parsed.attachments),
-            // Le contexte de la réunion est identique d'une question à l'autre : mis en cache.
-            { type: "text", text: buildAskContext(parsed), cache_control: { type: "ephemeral" } },
-            { type: "text", text: turn.content },
-          ],
-        }
-      : { role: turn.role, content: turn.content },
+  await streamLlm(
+    res,
+    ASK_SYSTEM_PROMPT,
+    turns.map((turn, index) => ({
+      role: turn.role,
+      text: String(turn.content ?? ""),
+      ...(index === 0 ? { context: buildAskContext(parsed), pdfs: pdfs(parsed.attachments) } : {}),
+    })),
+    16000,
   );
-  await streamClaude(res, ASK_SYSTEM_PROMPT, messages, 16000);
 });
 
-/** Transcription haute fidélité de l'enregistrement complet, avec séparation des locuteurs. */
-app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
+/** Lance la transcription de l'enregistrement complet ; renvoie un identifiant de tâche. */
+app.post("/api/transcribe", rateLimit, upload.single("audio"), async (req, res) => {
   const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "Aucun fichier audio ou vidéo reçu." });
+    return;
+  }
   try {
-    if (!transcriptionConfigured()) {
-      res.status(503).json({
-        error: "Transcription haute fidélité non configurée : renseignez GLADIA_API_KEY côté serveur.",
-      });
-      return;
-    }
-    if (!file) {
-      res.status(400).json({ error: "Aucun fichier audio reçu." });
-      return;
-    }
     const languages = String(req.body.languages ?? "")
       .split(",")
       .map((l) => l.trim())
       .filter((l) => /^[a-z]{2,3}$/.test(l));
-    const speakers = Number(req.body.speakers) || undefined;
-    const vocabulary = String(req.body.vocabulary ?? "").split(/[\n,;]/);
-
-    const result = await transcribeFile(file.path, { languages, speakers, vocabulary });
-    res.json(result);
+    const speakers = Math.min(Number(req.body.speakers) || 0, 50) || undefined;
+    const vocabulary = String(req.body.vocabulary ?? "").slice(0, 20_000).split(/[\n,;]/);
+    const id = await startTranscription(file.path, file.originalname || "reunion.webm", {
+      languages,
+      speakers,
+      vocabulary,
+    });
+    res.status(202).json({ id });
   } catch (err) {
-    console.error("[transcribe]", err);
-    res.status(502).json({ error: err instanceof Error ? err.message : "Transcription échouée." });
-  } finally {
-    if (file) await rm(file.path, { force: true });
+    await rm(file.path, { force: true });
+    console.error("[transcribe]", err instanceof Error ? err.message : err);
+    res.status(502).json({ error: err instanceof Error ? err.message : "Transcription impossible." });
   }
 });
 
+/** État d'une transcription : progression, puis résultat (remis une seule fois). */
+app.get("/api/transcribe/:id", async (req, res) => {
+  const job = await getTranscription(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: "Tâche inconnue ou expirée." });
+    return;
+  }
+  res.json(job);
+});
+
+app.use("/api", (_req, res) => res.status(404).json({ error: "Route inconnue." }));
+
+// Erreurs (fichier trop volumineux, JSON invalide…) : message générique, sans détail interne.
+app.use((err: Error & { status?: number; code?: string }, _req: Request, res: Response, _next: NextFunction) => {
+  const status = err.code === "LIMIT_FILE_SIZE" ? 413 : err.status && err.status < 500 ? err.status : 500;
+  if (status >= 500) console.error("[serveur]", err.message);
+  res.status(status).json({
+    error:
+      status === 413 ? "Fichier trop volumineux." : status < 500 ? "Requête invalide." : "Erreur interne du serveur.",
+  });
+});
+
 if (process.env.NODE_ENV === "production" && existsSync(distDir)) {
-  app.use(express.static(distDir));
+  app.use(express.static(distDir, { index: "index.html", maxAge: "1h" }));
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
 }
 
 app.listen(PORT, () => {
-  console.log(`MonMeeting API à l'écoute sur http://localhost:${PORT} (modèle ${MODEL})`);
+  console.log(
+    `MonMeeting API sur http://localhost:${PORT} — rédaction : ${LLM_PROVIDER} (${llmModel()}), transcription : ${TRANSCRIPTION_PROVIDER}` +
+      (API_TOKEN ? ", jeton requis" : "") +
+      (ALLOWED_ORIGINS.length ? `, origines autorisées : ${ALLOWED_ORIGINS.join(", ")}` : ""),
+  );
 });

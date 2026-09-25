@@ -9,7 +9,8 @@ import { saveAs } from "file-saver";
 import { appendAudioChunk, newId, saveMeeting, type Meeting } from "./db.ts";
 
 const FORMAT = "monmeeting";
-const VERSION = 1;
+/** v2 : contenu compressé (gzip) avant l'éventuel chiffrement. */
+const VERSION = 2;
 const PBKDF2_ITERATIONS = 600_000;
 
 interface PackagePayload {
@@ -39,6 +40,16 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+async function gzip(text: string): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzip(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+
 function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
@@ -63,6 +74,13 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promi
   );
 }
 
+/**
+ * Format v2 (binaire, compact) : « MONMEETING2\n » + en-tête JSON + « \n » + contenu gzip
+ * (chiffré AES-GCM si mot de passe). L'audio n'est plus encodé en base64 dans le fichier :
+ * le paquet pèse à peine plus que l'enregistrement lui-même.
+ */
+const MAGIC = "MONMEETING2\n";
+
 export async function buildMeetingPackage(
   meeting: Meeting,
   audio: Blob | null,
@@ -75,25 +93,23 @@ export async function buildMeetingPackage(
       data: toBase64(new Uint8Array(await audio.arrayBuffer())),
     };
   }
-  const json = JSON.stringify(payload);
-  const file: PackageFile = {
+  let body: Uint8Array<ArrayBuffer> = await gzip(JSON.stringify(payload));
+  const header: Omit<PackageFile, "data"> = {
     format: FORMAT,
     version: VERSION,
     title: password ? "Réunion chiffrée" : meeting.info.title,
     createdAt: new Date().toISOString(),
     encrypted: Boolean(password),
-    data: json,
   };
   if (password) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const key = await deriveKey(password, salt);
-    const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(json));
-    file.salt = toBase64(salt);
-    file.iv = toBase64(iv);
-    file.data = toBase64(new Uint8Array(cipher));
+    body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, body));
+    header.salt = toBase64(salt);
+    header.iv = toBase64(iv);
   }
-  return new Blob([JSON.stringify(file)], { type: "application/json" });
+  return new Blob([MAGIC, JSON.stringify(header), "\n", body], { type: "application/octet-stream" });
 }
 
 export class PasswordRequiredError extends Error {
@@ -104,31 +120,43 @@ export class PasswordRequiredError extends Error {
 
 /** Lit un paquet `.monmeeting` sans l'enregistrer. */
 export async function readMeetingPackage(file: Blob, password?: string): Promise<PackagePayload> {
-  let parsed: PackageFile;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const magic = new TextEncoder().encode(MAGIC);
+  const isV2 = magic.every((b, i) => bytes[i] === b);
+
+  let header: Partial<PackageFile>;
+  let body: Uint8Array<ArrayBuffer> | null = null;
   try {
-    parsed = JSON.parse(await file.text()) as PackageFile;
+    if (isV2) {
+      const end = bytes.indexOf(10, magic.length);
+      header = JSON.parse(new TextDecoder().decode(bytes.subarray(magic.length, end)));
+      body = bytes.slice(end + 1);
+    } else {
+      header = JSON.parse(new TextDecoder().decode(bytes)); // format v1 (JSON)
+    }
   } catch {
     throw new Error("Fichier illisible : ce n'est pas une réunion MonMeeting.");
   }
-  if (parsed.format !== FORMAT) throw new Error("Ce fichier n'est pas une réunion MonMeeting.");
-  if (parsed.version > VERSION) {
+  if (header.format !== FORMAT) throw new Error("Ce fichier n'est pas une réunion MonMeeting.");
+  if ((header.version ?? 0) > VERSION) {
     throw new Error("Fichier créé par une version plus récente de MonMeeting : mettez l'application à jour.");
   }
-  let json = parsed.data;
-  if (parsed.encrypted) {
+
+  // v1 non chiffré : la charge utile est déjà du JSON en clair.
+  if (!body && !header.encrypted) return JSON.parse(header.data ?? "") as PackagePayload;
+  let cipherOrPlain: Uint8Array<ArrayBuffer> = body ?? fromBase64(header.data ?? "");
+  if (header.encrypted) {
     if (!password) throw new PasswordRequiredError();
     try {
-      const key = await deriveKey(password, fromBase64(parsed.salt ?? ""));
-      const plain = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: fromBase64(parsed.iv ?? "") },
-        key,
-        fromBase64(parsed.data),
+      const key = await deriveKey(password, fromBase64(header.salt ?? ""));
+      cipherOrPlain = new Uint8Array(
+        await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(header.iv ?? "") }, key, cipherOrPlain),
       );
-      json = new TextDecoder().decode(plain);
     } catch {
       throw new Error("Mot de passe incorrect ou fichier altéré.");
     }
   }
+  const json = body ? await gunzip(cipherOrPlain) : new TextDecoder().decode(cipherOrPlain);
   return JSON.parse(json) as PackagePayload;
 }
 

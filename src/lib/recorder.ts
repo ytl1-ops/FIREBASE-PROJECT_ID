@@ -135,7 +135,8 @@ export class MeetingRecorder {
     let videoTrack: MediaStreamTrack | undefined;
     if (mode === "camera") {
       const cam = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        // 480p suffit pour une réunion filmée et divise le poids par ~2 par rapport au 720p.
+        video: { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: "user" },
       });
       this.streams.push(cam);
       videoTrack = cam.getVideoTracks()[0];
@@ -143,7 +144,11 @@ export class MeetingRecorder {
 
     if (usesDisplay(mode)) {
       // Capture de l'onglet/écran partagé (Teams, Zoom, Meet dans le navigateur).
-      const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      // Écran : 10 images/s suffisent (contenu majoritairement fixe) et gardent le texte net.
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 10, max: 15 }, width: { max: 1920 }, height: { max: 1080 } },
+        audio: true,
+      });
       this.streams.push(display);
       if (mode === "ecran") videoTrack = display.getVideoTracks()[0];
       else display.getVideoTracks().forEach((t) => t.stop());
@@ -177,9 +182,10 @@ export class MeetingRecorder {
     this.mimeType = pickMimeType(Boolean(videoTrack)) ?? (videoTrack ? "video/webm" : "audio/webm");
     this.recorder = new MediaRecorder(new MediaStream(tracks), {
       mimeType: this.mimeType,
-      audioBitsPerSecond: 64_000,
-      // ≈ 450 Mo par heure : lisible et partageable, sans saturer le stockage du navigateur.
-      ...(videoTrack ? { videoBitsPerSecond: 1_000_000 } : {}),
+      // Opus mono à 32 kbit/s : qualité « voix » transparente, ≈ 14 Mo par heure.
+      audioBitsPerSecond: 32_000,
+      // Vidéo : ≈ 270 Mo/h (caméra 480p) ou ≈ 360 Mo/h (écran), texte et visages lisibles.
+      ...(videoTrack ? { videoBitsPerSecond: mode === "ecran" ? 800_000 : 600_000 } : {}),
     });
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.callbacks.onChunk(e.data, this.chunkIndex++);
