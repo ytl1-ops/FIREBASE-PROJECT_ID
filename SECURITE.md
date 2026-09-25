@@ -68,7 +68,7 @@ serveur). Les seules sorties vers Internet, toutes désactivables, sont :
 | R5 | Enregistrer une réunion est un traitement de données personnelles (voix, propos) : consentement, information et finalité obligatoires (RGPD, nLPD suisse, et en France l'article 226-1 du Code pénal pour l'enregistrement de paroles à titre privé sans consentement). | Juridique | Réaliser une **AIPD**, inscrire le traitement au registre, informer les participants avant chaque enregistrement, fixer une durée de conservation. |
 | R6 | Les documents générés peuvent contenir des erreurs ou omissions (IA). | Moyen | Validation humaine obligatoire (mention déjà apposée sur chaque document) ; ne pas diffuser sans relecture. |
 | R7 | Injection d'instructions via une pièce jointe ou un propos (« ignore les consignes… »). | Faible | Le modèle ne dispose d'aucun outil ni accès : l'impact se limite au texte produit, relu par un humain. |
-| R8 | Jeton d'API conservé dans le stockage local du navigateur. | Faible | Atténué par la CSP (pas de script tiers) ; avec le SSO (R1), le jeton peut rester côté serveur/proxy. |
+| R8 | Jeton d'API : quand l'application est servie par « Mon API », il est échangé contre un **cookie de session httpOnly SameSite=Strict** et n'est plus conservé par le navigateur. Seul le cas « application GitHub Pages + serveur distant » le garde en stockage local. | Faible | Atténué par la CSP ; en entreprise, servir l'application par « Mon API » (même origine) ou derrière le SSO (R1). |
 | R9 | Limitation de débit et suivi des tâches en mémoire (une seule instance). | Faible | Suffisant pour un service interne ; derrière un répartiteur de charge, déplacer ces états dans Redis. |
 | R10 | Mises à jour de sécurité des dépendances et images (Ollama, Python, Node). | Continu | Rebuild mensuel des images, `npm audit` / `pip-audit` dans la chaîne CI, abonnement aux avis de sécurité. |
 
@@ -94,3 +94,26 @@ npm audit --omit=dev && pip-audit -r asr/requirements.txt
 curl -s localhost:8787/api/generate -X POST        # → 401 sans jeton
 curl -s -H "Origin: https://inconnu.example" -X OPTIONS localhost:8787/api/ask -o /dev/null -w "%{http_code}"  # → 403
 ```
+
+## 7. Revue selon ECC (Everything Claude Code)
+
+Revue du 25 septembre 2026 avec les listes de contrôle d'ECC (`security-reviewer`,
+`typescript-reviewer`, `react-reviewer`, `fastapi-reviewer`, `silent-failure-hunter`,
+règles `web/security` et `react/security`) et les outils qu'elles préconisent.
+
+| Outil / contrôle | Résultat |
+|---|---|
+| ESLint (typescript-eslint typé, `eslint-plugin-security`, `react-hooks`, `jsx-a11y`) | 23 erreurs corrigées → **0 erreur** ; avertissements restants = faux positifs vérifiés (accès `objet[clé]` typés, expressions régulières bornées testées) |
+| Promesses non gérées, règles des hooks React | Aucune |
+| ReDoS (expressions régulières) | 2 expressions de l'analyseur Markdown réécrites en temps linéaire ; tests d'entrées malveillantes (`tests/redos.test.ts`) |
+| XSS (`dangerouslySetInnerHTML`, `document.write`) | Rendu Markdown maison qui échappe tout HTML, aucune URL générée ; titre de la fenêtre d'impression échappé |
+| Jeton en `localStorage` (CRITIQUE selon ECC) | Remplacé par un cookie httpOnly en même origine (voir R8) |
+| Entrées serveur | Champs multipart typés et bornés ; taille maximale aussi imposée au service Python (413) |
+| Journalisation sécurité | Accès refusés, origines refusées, limites de débit journalisés (sans secret ni contenu) |
+| Accessibilité | Onglets `role="tablist"` corrects, groupe « Participants » en `fieldset`, **sous-titres WebVTT** générés depuis la transcription pour les lecteurs audio/vidéo |
+| Python : Ruff (`S`, `B`, `ASYNC`…) et Bandit | **0 problème** |
+| Dépendances : `npm audit`, `pip-audit` | **0 vulnérabilité** |
+| Secrets dans le dépôt | Aucun fichier sensible suivi (`.env` ignoré) |
+
+Rejouer l'analyse ESLint (TypeScript 7 n'étant pas encore pris en charge par typescript-eslint,
+l'outil s'installe à part) : voir `scripts/verifier-eslint.sh`.

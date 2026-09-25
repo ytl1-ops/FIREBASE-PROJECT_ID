@@ -25,6 +25,7 @@ executor = ThreadPoolExecutor(max_workers=int(os.environ.get("ASR_WORKERS", "1")
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 JOB_TTL = 6 * 3600  # les résultats non récupérés sont oubliés après 6 h
+MAX_UPLOAD = int(os.environ.get("ASR_MAX_UPLOAD_MB", "2048")) * 1024 * 1024
 
 
 def _purge() -> None:
@@ -63,18 +64,32 @@ async def create_job(
     vocabulary: str = Form(""),
 ) -> dict:
     _purge()
-    suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    ext = os.path.splitext(audio.filename or "")[1].lower()
+    suffix = ext if ext[1:].isalnum() and len(ext) <= 6 else ".webm"
+    size = 0
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         while chunk := await audio.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD:
+                tmp.close()
+                os.unlink(tmp.name)
+                raise HTTPException(413, "Fichier trop volumineux.")
             tmp.write(chunk)
-    langs = [code for code in languages.split(",") if code.strip().isalpha() and len(code.strip()) <= 3]
+    langs = [
+        code.strip() for code in languages.split(",") if code.strip().isalpha() and len(code.strip()) <= 3
+    ]
     n_speakers = int(speakers) if speakers.strip().isdigit() else None
     terms = [t for t in vocabulary.replace(";", "\n").replace(",", "\n").split("\n")]
 
     job_id = uuid.uuid4().hex
     with jobs_lock:
-        jobs[job_id] = {"status": "queued", "label": "En file d'attente", "progress": 0.0, "updated": time.time()}
-    executor.submit(_run, job_id, tmp.name, [l.strip() for l in langs], n_speakers, terms)
+        jobs[job_id] = {
+            "status": "queued",
+            "label": "En file d'attente",
+            "progress": 0.0,
+            "updated": time.time(),
+        }
+    executor.submit(_run, job_id, tmp.name, langs, n_speakers, terms)
     return {"id": job_id}
 
 

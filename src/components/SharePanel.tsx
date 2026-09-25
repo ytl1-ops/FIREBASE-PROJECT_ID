@@ -149,10 +149,12 @@ export function SharePanel({ meeting }: { meeting: Meeting }) {
             <button
               disabled={busy !== null || !meeting.transcript.length}
               onClick={() =>
-                void run("transcript", async () => ({
-                  blob: transcriptBlob(meeting),
-                  name: `${fileSlug(meeting, "transcription")}.txt`,
-                }))
+                void run("transcript", () =>
+                  Promise.resolve({
+                    blob: transcriptBlob(meeting),
+                    name: `${fileSlug(meeting, "transcription")}.txt`,
+                  }),
+                )
               }
             >
               {busy === "transcript" ? "…" : `⇪ ${verb}`}

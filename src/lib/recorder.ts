@@ -96,7 +96,7 @@ export function pickMimeType(video = false): string | undefined {
 }
 
 export function recordingSupported(): boolean {
-  return Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== "undefined";
+  return typeof navigator.mediaDevices?.getUserMedia === "function" && typeof MediaRecorder !== "undefined";
 }
 
 export class MeetingRecorder {

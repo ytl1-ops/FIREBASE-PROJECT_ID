@@ -23,7 +23,13 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
-const isTableSep = (line: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
+/** Ligne de séparation de tableau (|---|:--:|) ; vérification cellule par cellule, en temps linéaire. */
+function isTableSep(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes("-")) return false;
+  const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
+  return cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
+}
 
 export function parseMarkdown(md: string): Block[] {
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
@@ -44,7 +50,7 @@ export function parseMarkdown(md: string): Block[] {
       continue;
     }
 
-    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+    if (/^([-*_])\1{2,}$/.test(line.replace(/\s/g, ""))) {
       blocks.push({ type: "hr" });
       i++;
       continue;

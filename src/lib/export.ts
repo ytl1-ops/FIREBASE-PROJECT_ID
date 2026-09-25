@@ -34,7 +34,7 @@ export function printDocument(markdown: string, meeting: Meeting) {
   if (!win) return;
   const label = CLASSIFICATION_LABELS[meeting.info.classification].toUpperCase();
   win.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8" />
-<title>${meeting.info.title.replace(/</g, "&lt;")}</title>
+<title>${meeting.info.title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</title>
 <style>
   @page { margin: 2cm; }
   body { font: 11pt/1.5 Calibri, "Segoe UI", Arial, sans-serif; color: #111; }
@@ -83,7 +83,7 @@ export function audioFileName(meeting: Meeting, audio: Blob): string {
   return `${fileSlug(meeting, video ? "video" : "audio")}.${ext}`;
 }
 
-export async function exportAudio(meeting: Meeting, audio: Blob) {
+export function exportAudio(meeting: Meeting, audio: Blob) {
   void saveFile(audio, audioFileName(meeting, audio));
 }
 

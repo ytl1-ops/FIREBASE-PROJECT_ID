@@ -80,21 +80,69 @@ app.use("/api", (req, res, next) => {
     res.setHeader("Access-Control-Max-Age", "600");
   }
   if (req.method === "OPTIONS") {
+    if (!(origin && ALLOWED_ORIGINS.includes(origin))) securityLog(`origine refusée (${origin ?? "aucune"})`, req);
     res.sendStatus(origin && ALLOWED_ORIGINS.includes(origin) ? 204 : 403);
     return;
   }
   next();
 });
 
+/** Journal des événements de sécurité (jamais de jeton ni de contenu de réunion). */
+function securityLog(event: string, req: Request) {
+  console.warn(`[sécurité] ${new Date().toISOString()} ${event} ip=${req.ip ?? "?"} ${req.method} ${req.path}`);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * Session par cookie httpOnly (application servie par ce serveur) : le jeton n'est jamais
+ * conservé par le JavaScript du navigateur. Valeur dérivée du jeton (HMAC) : changer
+ * MONMEETING_API_TOKEN révoque toutes les sessions.
+ */
+const SESSION_COOKIE = "mm_session";
+const sessionValue = () => crypto.createHmac("sha256", API_TOKEN).update("monmeeting-session-v1").digest("hex");
+
+function cookie(req: Request, name: string): string {
+  for (const part of (req.get("cookie") ?? "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return rest.join("=");
+  }
+  return "";
+}
+
 function tokenOk(req: Request): boolean {
   if (!API_TOKEN) return true;
-  const given = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
-  const expected = Buffer.from(API_TOKEN);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+  const bearer = req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (bearer) return safeEqual(bearer, API_TOKEN);
+  const session = cookie(req, SESSION_COOKIE);
+  return Boolean(session) && safeEqual(session, sessionValue());
 }
+
+// Échange du jeton (lien de connexion) contre un cookie de session httpOnly.
+app.post("/api/session", express.json({ limit: "2kb" }), (req, res) => {
+  const token = (req.body as { token?: unknown } | undefined)?.token;
+  if (!API_TOKEN || typeof token !== "string" || !safeEqual(token, API_TOKEN)) {
+    securityLog("session refusée", req);
+    res.status(401).json({ error: "Jeton d'API invalide.", code: "token" });
+    return;
+  }
+  res.cookie(SESSION_COOKIE, sessionValue(), {
+    httpOnly: true,
+    secure: req.secure,
+    sameSite: "strict",
+    path: "/api",
+    maxAge: 30 * 24 * 3600 * 1000,
+  });
+  res.status(204).end();
+});
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" || tokenOk(req)) return next();
+  securityLog("accès refusé (jeton)", req);
   res.status(401).json({ error: "Jeton d'API manquant ou invalide.", code: "token" });
 });
 
@@ -110,6 +158,7 @@ function rateLimit(req: Request, res: Response, next: NextFunction) {
     return next();
   }
   if (++entry.count > RATE_LIMIT) {
+    if (entry.count === RATE_LIMIT + 1) securityLog("limite de débit atteinte", req);
     res.setHeader("Retry-After", String(Math.ceil((entry.reset - now) / 1000)));
     res.status(429).json({ error: "Trop de requêtes : patientez une minute." });
     return;
@@ -225,12 +274,14 @@ app.post("/api/transcribe", rateLimit, upload.single("audio"), async (req, res) 
     return;
   }
   try {
-    const languages = String(req.body.languages ?? "")
+    const fields = (req.body ?? {}) as Record<string, unknown>;
+    const field = (name: string) => (typeof fields[name] === "string" ? (fields[name]) : "");
+    const languages = field("languages")
       .split(",")
       .map((l) => l.trim())
       .filter((l) => /^[a-z]{2,3}$/.test(l));
-    const speakers = Math.min(Number(req.body.speakers) || 0, 50) || undefined;
-    const vocabulary = String(req.body.vocabulary ?? "").slice(0, 20_000).split(/[\n,;]/);
+    const speakers = Math.min(Number(field("speakers")) || 0, 50) || undefined;
+    const vocabulary = field("vocabulary").slice(0, 20_000).split(/[\n,;]/);
     const id = await startTranscription(file.path, file.originalname || "reunion.webm", {
       languages,
       speakers,
@@ -257,6 +308,8 @@ app.get("/api/transcribe/:id", async (req, res) => {
 app.use("/api", (_req, res) => res.status(404).json({ error: "Route inconnue." }));
 
 // Erreurs (fichier trop volumineux, JSON invalide…) : message générique, sans détail interne.
+// Express reconnaît un gestionnaire d'erreurs à ses quatre paramètres : `_next` est requis.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error & { status?: number; code?: string }, _req: Request, res: Response, _next: NextFunction) => {
   const status = err.code === "LIMIT_FILE_SIZE" ? 413 : err.status && err.status < 500 ? err.status : 500;
   if (status >= 500) console.error("[serveur]", err.message);

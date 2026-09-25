@@ -97,7 +97,7 @@ export function clusterEmbeddings(
   const k = options.k ? Math.max(1, Math.min(options.k, n)) : undefined;
 
   const sim: number[][] = embeddings.map((a) => embeddings.map((b) => cosine(a, b)));
-  let clusters: number[][] = embeddings.map((_, i) => [i]);
+  const clusters: number[][] = embeddings.map((_, i) => [i]);
 
   const linkage = (a: number[], b: number[]) => {
     let total = 0;

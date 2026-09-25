@@ -55,7 +55,7 @@ export function runLocalTranscription(
     result,
     cancel: () => {
       worker.terminate();
-      reject(new DOMException("Transcription annulée", "AbortError") as unknown as Error);
+      reject(new DOMException("Transcription annulée", "AbortError"));
     },
   };
 }

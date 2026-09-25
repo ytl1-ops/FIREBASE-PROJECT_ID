@@ -11,7 +11,8 @@ def test_job_lifecycle(monkeypatch):
     def fake(path, languages, speakers, vocabulary, progress):
         calls.update(languages=languages, speakers=speakers, vocabulary=[v for v in vocabulary if v])
         progress("Transcription", 0.5)
-        return {"segments": [{"start": 0, "end": 1000, "speaker": "Locuteur 1", "text": "Bonjour"}], "languages": ["fr"]}
+        segment = {"start": 0, "end": 1000, "speaker": "Locuteur 1", "text": "Bonjour"}
+        return {"segments": [segment], "languages": ["fr"]}
 
     monkeypatch.setattr(service.pipeline, "transcribe", fake)
     client = TestClient(service.app)
@@ -33,3 +34,9 @@ def test_job_lifecycle(monkeypatch):
 
 def test_unknown_job():
     assert TestClient(service.app).get("/jobs/inconnu").status_code == 404
+
+
+def test_upload_too_large(monkeypatch):
+    monkeypatch.setattr(service, "MAX_UPLOAD", 5)
+    res = TestClient(service.app).post("/jobs", files={"audio": ("a.webm", b"\x00" * 10, "audio/webm")})
+    assert res.status_code == 413

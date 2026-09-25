@@ -53,10 +53,12 @@ export function TranscriptPanel({
   const isVideo = (meeting.audioMime ?? "").startsWith("video/");
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Rechargé seulement quand l'enregistrement change (pas à chaque correction de texte).
+  const { id: meetingId, audioChunks, audioMime } = meeting;
   useEffect(() => {
     if (recording) return;
     let url: string | null = null;
-    void getAudio(meeting).then((blob) => {
+    void getAudio({ id: meetingId, audioChunks, audioMime } as Meeting).then((blob) => {
       setAudio(blob);
       if (blob) {
         url = URL.createObjectURL(blob);
@@ -67,13 +69,27 @@ export function TranscriptPanel({
       if (url) URL.revokeObjectURL(url);
     };
     // Recharger uniquement quand le nombre de fragments change.
-  }, [meeting.id, meeting.audioChunks, recording]);
+  }, [meetingId, audioChunks, audioMime, recording]);
 
   const participants = meeting.info.participants;
-  const participantIds = new Set(participants.map((p) => p.id));
+
+  // Sous-titres (WebVTT) générés depuis la transcription, pour le lecteur audio/vidéo.
+  const captionsUrl = useMemo(() => {
+    const speech = meeting.transcript.filter((seg) => (seg.kind ?? "speech") === "speech");
+    if (!speech.length) return null;
+    const ts = (ms: number) => new Date(ms).toISOString().slice(11, 23);
+    const cues = speech.map((seg, i) => {
+      const end = seg.end ?? speech[i + 1]?.start ?? seg.start + 4000;
+      const who = speakerName(participants, seg.speakerId);
+      return `${ts(seg.start)} --> ${ts(Math.max(end, seg.start + 500))}\n<v ${who.replace(/[<>]/g, "")}>${seg.text.replace(/[<>&]/g, " ")}`;
+    });
+    return URL.createObjectURL(new Blob([`WEBVTT\n\n${cues.join("\n\n")}\n`], { type: "text/vtt" }));
+  }, [meeting.transcript, participants]);
+  useEffect(() => () => void (captionsUrl && URL.revokeObjectURL(captionsUrl)), [captionsUrl]);
 
   /** Étiquettes de locuteurs issues de la diarisation ou d'un import, pas encore rattachées. */
   const unmapped = useMemo(() => {
+    const participantIds = new Set(participants.map((p) => p.id));
     const labels = new Map<string, number>();
     for (const s of meeting.transcript) {
       if (s.speakerId && !participantIds.has(s.speakerId)) {
@@ -300,10 +316,19 @@ export function TranscriptPanel({
                 }
               },
             };
+            const track = captionsUrl ? (
+              <track kind="captions" src={captionsUrl} srcLang="fr" label="Transcription" default />
+            ) : null;
             return isVideo ? (
-              <video ref={player as React.RefObject<HTMLVideoElement>} playsInline {...props} />
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- sous-titres ajoutés dès qu'une transcription existe
+              <video ref={player as React.RefObject<HTMLVideoElement>} playsInline {...props}>
+                {track}
+              </video>
             ) : (
-              <audio ref={player as React.RefObject<HTMLAudioElement>} {...props} />
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- sous-titres ajoutés dès qu'une transcription existe
+              <audio ref={player} {...props}>
+                {track}
+              </audio>
             );
           })()
         ) : (
@@ -490,7 +515,7 @@ export function TranscriptPanel({
             <button disabled={!meeting.transcript.length} onClick={() => exportTranscript(meeting)}>
               ⤓ Texte
             </button>
-            <button disabled={!audio} onClick={() => audio && void exportAudio(meeting, audio)}>
+            <button disabled={!audio} onClick={() => audio && exportAudio(meeting, audio)}>
               ⤓ {isVideo ? "Vidéo" : "Audio"}
             </button>
             <input

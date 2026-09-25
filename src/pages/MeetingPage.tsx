@@ -135,7 +135,7 @@ export function MeetingPage({
         </div>
       </div>
 
-      <nav className="tabs" role="tablist">
+      <div className="tabs" role="tablist" aria-label="Sections de la réunion">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -154,7 +154,7 @@ export function MeetingPage({
             )}
           </button>
         ))}
-      </nav>
+      </div>
 
       {/* L'enregistreur reste monté pour ne pas interrompre la capture en changeant d'onglet. */}
       <div hidden={tab !== "enregistrement"}>

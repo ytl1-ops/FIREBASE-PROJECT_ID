@@ -129,10 +129,10 @@ export async function readMeetingPackage(file: Blob, password?: string): Promise
   try {
     if (isV2) {
       const end = bytes.indexOf(10, magic.length);
-      header = JSON.parse(new TextDecoder().decode(bytes.subarray(magic.length, end)));
+      header = JSON.parse(new TextDecoder().decode(bytes.subarray(magic.length, end))) as Partial<PackageFile>;
       body = bytes.slice(end + 1);
     } else {
-      header = JSON.parse(new TextDecoder().decode(bytes)); // format v1 (JSON)
+      header = JSON.parse(new TextDecoder().decode(bytes)) as Partial<PackageFile>; // format v1 (JSON)
     }
   } catch {
     throw new Error("Fichier illisible : ce n'est pas une réunion MonMeeting.");

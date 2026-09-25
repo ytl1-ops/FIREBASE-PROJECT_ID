@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { StorageSettings } from "../components/StorageSettings.tsx";
-import { fetchHealth, getApiSettings, getModelHost, saveApiSettings, saveModelHost, type Health } from "../lib/api.ts";
+import { fetchHealth, getApiSettings, getModelHost, openSession, saveApiSettings, saveModelHost, type Health } from "../lib/api.ts";
 
 export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => void }) {
   const initial = getApiSettings();
@@ -19,7 +19,13 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
       return;
     }
     setTesting(true);
-    saveApiSettings(clean, token);
+    // Même serveur que l'application : session par cookie httpOnly, jeton non conservé.
+    if (!clean && token && (await openSession(token))) {
+      saveApiSettings("", "");
+      setToken("");
+    } else {
+      saveApiSettings(clean, token);
+    }
     const health = await fetchHealth();
     setTesting(false);
     onSaved(health);
@@ -44,6 +50,8 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
         window.history.replaceState(null, "", "#/reglages");
       });
     }
+    // Exécuté une seule fois à l'ouverture via le lien de connexion (jeton dans l'adresse).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -78,7 +86,10 @@ export function SettingsPage({ onSaved }: { onSaved: (health: Health | null) => 
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />
-        <p className="muted small">Conservé uniquement dans ce navigateur.</p>
+        <p className="muted small">
+          Application ouverte depuis votre serveur : échangé contre une session sécurisée (cookie
+          protégé), non conservé. Serveur distant : conservé dans ce navigateur uniquement.
+        </p>
       </div>
       <div className="row">
         <button className="primary" onClick={() => void test()} disabled={testing}>

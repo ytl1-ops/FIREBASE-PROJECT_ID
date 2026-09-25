@@ -55,6 +55,24 @@ export function saveModelHost(host: string) {
   }
 }
 
+/**
+ * Application servie par « Mon API » (même origine) : le jeton est échangé contre un cookie
+ * httpOnly et n'est PAS conservé dans le navigateur. Renvoie false si le serveur refuse.
+ */
+export async function openSession(token: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      credentials: "same-origin",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 function apiUrl(path: string): string {
   return `${getApiSettings().url}${path}`;
 }

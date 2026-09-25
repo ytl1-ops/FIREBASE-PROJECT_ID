@@ -89,8 +89,10 @@ export function MeetingInfoForm({
         />
       </div>
 
-      <div>
-        <label>Participants</label>
+      <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+        <legend className="small" style={{ fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
+          Participants
+        </legend>
         <table className="participants-table">
           <tbody>
             {info.participants.map((p) => (
@@ -155,7 +157,7 @@ export function MeetingInfoForm({
         >
           + Ajouter un participant
         </button>
-      </div>
+      </fieldset>
     </div>
   );
 }

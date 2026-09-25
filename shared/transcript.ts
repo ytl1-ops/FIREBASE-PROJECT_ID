@@ -59,7 +59,7 @@ export interface ImportedTranscript {
  * et doivent être rapprochés des participants par l'appelant.
  */
 export function parseTranscriptFile(content: string): ImportedTranscript {
-  const text = content.replace(/\r\n?/g, "\n").replace(/^﻿/, "");
+  const text = content.replace(/\r\n?/g, "\n").replace(/^\uFEFF/, "");
   const speakers = new Set<string>();
   const segments: TranscriptSegment[] = [];
   const cueRe =

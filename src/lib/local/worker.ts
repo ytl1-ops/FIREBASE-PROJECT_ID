@@ -12,7 +12,6 @@ import {
   AutoProcessor,
   env,
   pipeline,
-  type AutomaticSpeechRecognitionPipeline,
   type ProgressInfo,
 } from "@huggingface/transformers";
 // Moteur ONNX servi par l'application elle-même (aucun téléchargement depuis un CDN tiers).
@@ -68,7 +67,7 @@ async function transcribe(req: LocalRequest) {
       ? { encoder_model: "fp32", decoder_model_merged: "q4" }
       : { encoder_model: "fp32", decoder_model_merged: "q8" },
     progress_callback: downloadProgress("Modèle de transcription"),
-  })) as AutomaticSpeechRecognitionPipeline;
+  }));
 
   // 1. Transcription fenêtre par fenêtre.
   const windows = splitWindows(audio, SAMPLE_RATE);
@@ -90,7 +89,7 @@ async function transcribe(req: LocalRequest) {
       if (segments.length && segments[segments.length - 1].text === text) continue; // répétition
       const [s, e] = chunk.timestamp;
       const start = Math.min(offset + (s ?? 0), winEnd);
-      const end = Math.min(e == null ? winEnd : offset + e, winEnd);
+      const end = Math.min(e === null || e === undefined ? winEnd : offset + e, winEnd);
       segments.push({ start, end: Math.max(end, start + 0.2), text, speaker: 0 });
     }
     // Aperçu progressif : l'interface affiche les phrases au fur et à mesure.
@@ -106,7 +105,7 @@ async function transcribe(req: LocalRequest) {
       await identifySpeakers(audio, segments, speakers);
     } catch (err) {
       segments.forEach((seg) => (seg.speaker = 0));
-      warning = `Voix non séparées (${err instanceof Error ? err.message : err}) : attribuez les intervenants à la main.`;
+      warning = `Voix non séparées (${err instanceof Error ? err.message : String(err)}) : attribuez les intervenants à la main.`;
     }
   }
 
@@ -134,9 +133,9 @@ async function identifySpeakers(audio: Float32Array, segments: LocalSegment[], s
       if (seg.end - seg.start < 1) continue;
       const from = Math.floor(seg.start * SAMPLE_RATE);
       const to = Math.min(Math.floor(seg.end * SAMPLE_RATE), from + 10 * SAMPLE_RATE);
-      const inputs = await processor(audio.slice(from, to));
-      const { embeddings: tensor } = await speakerModel(inputs);
-      embeddings.push(new Float32Array(tensor.data as Float32Array));
+      const inputs: unknown = await processor(audio.slice(from, to));
+      const output = (await speakerModel(inputs)) as { embeddings: { data: Float32Array } };
+      embeddings.push(new Float32Array(output.embeddings.data));
       embedded.push(i);
     }
     await speakerModel.dispose();
