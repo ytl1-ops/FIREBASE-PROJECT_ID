@@ -179,3 +179,7 @@ mark { background: color-mix(in srgb, var(--warning) 35%, transparent); color: i
   body { background: #fff; }
   .document { border: none; padding: 0; }
 }
+@media (max-width: 520px) {
+  .row > button, .row > .btn { white-space: normal; max-width: 100%; text-align: left; }
+  .row > button.primary { flex: 1 1 100%; justify-content: center; text-align: center; }
+}
