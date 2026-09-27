@@ -42,6 +42,7 @@ export function printDocument(markdown: string, meeting: Meeting) {
   h1 { font-size: 18pt; color: #0f2a44; } h2 { font-size: 14pt; color: #0f2a44; border-bottom: 1px solid #ccd; }
   table { border-collapse: collapse; width: 100%; margin: 8px 0; }
   th, td { border: 1px solid #99a; padding: 4px 6px; text-align: left; vertical-align: top; }
+  td.court, th.court { white-space: nowrap; }
   th { background: #0f2a44; color: #fff; }
   blockquote { border-left: 3px solid #0f2a44; margin-left: 0; padding-left: 12px; }
 </style></head><body>

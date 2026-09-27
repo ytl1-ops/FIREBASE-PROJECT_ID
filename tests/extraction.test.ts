@@ -122,3 +122,23 @@ describe("phrases coupées par la transcription", () => {
     expect(a.phrases[1].t).toBe(10_000);
   });
 });
+
+describe("présentation du PV", () => {
+  it("présente le déroulé en tableau qualifié et écarte les fausses actions", () => {
+    const pv = redigerSansIA({ ...req, type: "pv" });
+    expect(pv).toContain("| Heure | Intervenant | Nature | Teneur des propos |");
+    expect(pv).toMatch(/\| Décision \|/);
+    expect(pv).toMatch(/\| Risque \/ menace \|/);
+    expect(pv).toContain("**Bilan**");
+    const a = analyser({
+      ...req,
+      transcript: [
+        t(0, "p1", "Je vais donc passer en revue certains de ces mythes et vous montrer qu'ils sont faux."),
+        t(10, "p2", "Tu vas casser le chelou."),
+        t(20, "p2", "Je vais envoyer la note de sécurité aux équipes demain."),
+      ],
+      notes: "",
+    });
+    expect(a.actions.map((x) => x.phrase.text)).toEqual(["Je vais envoyer la note de sécurité aux équipes demain."]);
+  });
+});

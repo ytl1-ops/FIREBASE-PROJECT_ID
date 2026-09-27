@@ -23,6 +23,9 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
+/** Cellule courte (« À préciser », « 01:47 ») : jamais coupée sur deux lignes. */
+const court = (cell: string) => (cell.replace(/[*_`]/g, "").trim().length <= 16 ? ' class="court"' : "");
+
 /** Ligne de séparation de tableau (|---|:--:|) ; vérification cellule par cellule, en temps linéaire. */
 function isTableSep(line: string): boolean {
   const trimmed = line.trim();
@@ -165,9 +168,9 @@ export function markdownToHtml(md: string): string {
         }
         case "table":
           return `<div class="table-wrap"><table><thead><tr>${b.header
-            .map((h) => `<th>${inlineHtml(h)}</th>`)
+            .map((h) => `<th${court(h)}>${inlineHtml(h)}</th>`)
             .join("")}</tr></thead><tbody>${b.rows
-            .map((r) => `<tr>${r.map((c) => `<td>${inlineHtml(c)}</td>`).join("")}</tr>`)
+            .map((r) => `<tr>${r.map((c) => `<td${court(c)}>${inlineHtml(c)}</td>`).join("")}</tr>`)
             .join("")}</tbody></table></div>`;
       }
     })

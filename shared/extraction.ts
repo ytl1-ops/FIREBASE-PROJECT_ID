@@ -117,8 +117,19 @@ const premiereMaj = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const RE_DECISION =
   /\b(on (a )?decide|nous (avons )?decide|il (est|a ete) decide|decision|decide de|on valide|c'?est valide|est valide|valide[es]? |approuve|adopte|on retient|est retenu|acte|on arrete|est arrete|d'?accord pour|on part sur|on maintient|est maintenu|on suspend|est suspendu|on reporte|est reporte|il est convenu|convenu|on s'?accorde|est entendu|feu vert|on garde|on annule|est annule|interdiction de|desormais)/;
-const RE_ACTION =
-  /\b(je vais|je m'?en (charge|occupe)|je le fais|je prends|on va |nous allons|vous allez|tu vas|il va |elle va |ils vont|il faut|il faudra|il faudrait|doit |doivent|devra|devront|se charge|s'?occupe|a faire|charge de|merci de|je propose de|relancer|envoyer|transmettre|preparer|organiser|verifier|mettre a jour|programmer|planifier|contacter|informer|rediger|diffuser|remonter|renforcer|installer|former|sensibiliser)/;
+/** Engagements explicites : suffisent à eux seuls. */
+const RE_ACTION_FORT =
+  /\b(je m'?en (charge|occupe)|je le fais|je prends (en charge|l'?action|le sujet)|je m'?engage|se charge|s'?occupe de|a faire|charge de|merci de|je propose de|il faut|il faudra|il faudrait|doit |doivent|devra|devront)/;
+/** Futurs (« je vais », « on va »…) : action seulement avec une tâche concrète ou une échéance. */
+const RE_ACTION_FAIBLE = /\b(je vais|on va |nous allons|vous allez|tu vas|il va |elle va |ils vont|elles vont)/;
+const RE_TACHE =
+  /\b(relancer|envoyer|transmettre|preparer|organiser|verifier|mettre a jour|mettre en place|mettre en oeuvre|programmer|planifier|contacter|appeler|rappeler|informer|rediger|diffuser|remonter|renforcer|installer|former|sensibiliser|lancer|finaliser|valider|etablir|elaborer|suivre|recenser|identifier|evaluer|commander|reserver|deployer|equiper|fournir|livrer|signer|recruter|creer|actualiser|completer|corriger|faire le point|securiser|escorter|auditer|tester|reporter|annuler|suspendre|briefer|debriefer|alerter|coordonner|rencontrer|convoquer|partager|consolider)/;
+/** Propos d'exposé (« je vais vous montrer », « il faut dire que ») : jamais des actions. */
+const RE_DISCOURS =
+  /\b(je vais|on va|nous allons|vous allez|tu vas|il faut)( donc| maintenant| d'?abord| ensuite| juste| rapidement| aussi| vous| en)* (passer en revue|parler|montrer|expliquer|presenter|commencer|continuer|conclure|terminer|revenir|voir|dire|raconter|aborder|evoquer|essayer|comprendre|savoir|reconnaitre|avouer|admettre|noter|rappeler que|remarquer|imaginer|regarder|ecouter|decouvrir|constater|croire)/;
+const estAction = (n: string) =>
+  !RE_DISCOURS.test(n) &&
+  (RE_ACTION_FORT.test(n) || ((RE_ACTION_FAIBLE.test(n) || RE_TACHE.test(n)) && (RE_TACHE.test(n) || RE_ECHEANCE.test(n)) && (RE_ACTION_FAIBLE.test(n) || RE_ECHEANCE.test(n))));
 const RE_RISQUE =
   /\b(risque|menace|danger|incident|attaque|attentat|enlevement|kidnapping|rapt|braquage|agression|cambriolage|vol |vols |manifestation|emeute|troubles|insecurit|vigilance|alerte|couvre-feu|evacu|explosi|engin|tirs?\b|arme|checkpoint|barrage|embuscade|accident|blesse|victime|terroris|jihad|criminalit|banditisme|piraterie|cyber|hameconnage|fraude|intrusion|vulnerabilit|niveau (de )?(securite|surete|menace|alerte)|zone rouge|zone orange|deconseill|instabilit|coup d'?etat|tension)/;
 const RE_SUSPENS =
@@ -253,13 +264,16 @@ export function analyser(req: Pick<GenerateRequest, "meeting" | "transcript" | "
 
   // Temps de parole : durée des segments (ou estimation à 2,5 mots/s).
   const temps = new Map<string, { tempsMs: number; interventions: number }>();
+  let dernierNom = "";
   req.transcript.forEach((seg, i) => {
     if ((seg.kind ?? "speech") !== "speech" || !seg.text.trim()) return;
     const nom = speakerName(meeting.participants, seg.speakerId);
     const fin = seg.end ?? req.transcript[i + 1]?.start ?? seg.start + (seg.text.split(/\s+/).length / 2.5) * 1000;
     const e = temps.get(nom) ?? { tempsMs: 0, interventions: 0 };
     e.tempsMs += Math.max(0, fin - seg.start);
-    e.interventions += 1;
+    // Une intervention = un tour de parole (fragments consécutifs d'une même voix).
+    if (nom !== dernierNom) e.interventions += 1;
+    dernierNom = nom;
     temps.set(nom, e);
   });
   const intervenants = [...temps.entries()].map(([nom, v]) => ({ nom, ...v })).sort((a, b) => b.tempsMs - a.tempsMs);
@@ -344,7 +358,7 @@ export function analyser(req: Pick<GenerateRequest, "meeting" | "transcript" | "
 
   const decisions = dedoublonner(classe(RE_DECISION).filter(nonQuestion), (p) => p.text);
   const actions = dedoublonner(
-    classe(RE_ACTION)
+    phrases.filter((p) => estAction(normaliser(p.text)))
       .filter(nonQuestion)
       .filter((p) => !decisions.includes(p) || RE_ECHEANCE.test(normaliser(p.text))),
     (p) => p.text,
@@ -425,6 +439,14 @@ const liste = (items: string[], vide = "_Aucun élément relevé dans les échan
 const numerotee = (items: string[], vide = "_Aucun élément relevé dans les échanges._") =>
   items.length ? items.map((x, i) => `${i + 1}. ${x}`).join("\n") : vide;
 
+/** Durée précise à la seconde, pour le temps de parole. */
+function dureeFine(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const min = Math.floor(s / 60);
+  return min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}` : `${min} min ${String(s % 60).padStart(2, "0")} s`;
+}
+
 function duree(ms: number): string {
   const min = Math.round(ms / 60_000);
   if (min < 1) return "moins d'une minute";
@@ -484,44 +506,81 @@ function piecesJointes(a: Analyse): string {
 /** Propos sans contenu (« Oui. », « Merci. ») écartés des résumés. */
 const significatif = (p: Phrase) => p.kind !== "speech" || (mots(p.text).length >= 2 && !RE_REMPLISSAGE.test(normaliser(p.text))) || mots(p.text).length >= 4;
 
+const RE_PROPOSITION = /\b(je propose|je suggere|on pourrait|nous pourrions|il faudrait|pourquoi ne pas|ma proposition|je recommande|recommandation)/;
+const RE_AVIS = /\b(je pense|je crois|a mon avis|selon moi|il me semble|je trouve|j'?estime|je considere|pour moi|de mon point de vue)/;
+
+/** Nature d'un propos, pour le tableau du déroulé (ordre = priorité). */
+function nature(p: Phrase): string {
+  if (p.kind === "note") return "Note";
+  if (p.kind === "bookmark") return "Moment marqué";
+  const n = normaliser(p.text);
+  if (RE_DECISION.test(n) && !p.text.trim().endsWith("?")) return "Décision";
+  if (estAction(n) && !p.text.trim().endsWith("?")) return "Action";
+  if (RE_RISQUE.test(n)) return "Risque / menace";
+  if (RE_SUSPENS.test(n)) return "Point en suspens";
+  if (p.text.trim().endsWith("?")) return "Question";
+  if (RE_PROPOSITION.test(n)) return "Proposition";
+  if (RE_CONSIGNE.test(n)) return "Consigne";
+  if (RE_RETOUR.test(n)) return "Retour d'expérience";
+  if (RE_AVIS.test(n)) return "Avis";
+  return "Information";
+}
+const PRIORITE_NATURE = ["Décision", "Action", "Risque / menace", "Point en suspens", "Proposition", "Consigne", "Retour d'expérience", "Question", "Avis", "Note", "Moment marqué", "Information"];
+
 /**
- * Propos les plus représentatifs d'une partie, dans l'ordre chronologique. Les phrases
- * voisines d'un même intervenant sont regroupées en une seule intervention lisible.
+ * Déroulé d'une partie sous forme de tableau (heure, intervenant, nature, teneur) : propos les plus
+ * représentatifs, dans l'ordre chronologique, phrases voisines d'une même voix regroupées.
  */
-function resumePoint(pt: { titre: string; phrases: Phrase[] }, max: number, toutes: Phrase[]): string[] {
+function deroule(pt: { titre: string; phrases: Phrase[] }, max: number, toutes: Phrase[]): string {
+  const rang = new Map(toutes.map((p, i) => [p, i]));
   const choisies = dedoublonner([...pt.phrases].filter(significatif).sort((x, y) => y.score - x.score), (p) => p.text)
     .slice(0, max)
-    .sort((x, y) => x.t - y.t || toutes.indexOf(x) - toutes.indexOf(y));
+    .sort((x, y) => (rang.get(x) ?? 0) - (rang.get(y) ?? 0));
   const groupes: Phrase[][] = [];
   for (const p of choisies) {
     const g = groupes.at(-1);
     const precedent = g?.at(-1);
-    const voisines = precedent && toutes.indexOf(p) - toutes.indexOf(precedent) <= 3;
+    const voisines = precedent && (rang.get(p) ?? 0) - (rang.get(precedent) ?? 0) <= 3;
     if (g && precedent && precedent.kind === "speech" && p.kind === "speech" && precedent.speaker === p.speaker && voisines) g.push(p);
     else groupes.push([p]);
   }
-  return groupes.map((g) =>
-    g.length === 1 ? cite(g[0]) : `**${g[0].speaker}** ${ts(g[0])} : ${couper(g.map((p) => p.text).join(" "), 700)}`,
-  );
+  if (!groupes.length) return "_Aucun échange significatif._";
+  return `| Heure | Intervenant | Nature | Teneur des propos |\n|---|---|---|---|\n${groupes
+    .map((g) => {
+      const nat = g.map(nature).sort((x, y) => PRIORITE_NATURE.indexOf(x) - PRIORITE_NATURE.indexOf(y))[0];
+      const qui = g[0].kind === "speech" ? g[0].speaker : g[0].kind === "note" ? "Rédacteur" : "—";
+      return `| ${formatTimestamp(g[0].t)} | ${cellule(qui)} | ${nat} | « ${cellule(couper(g.map((p) => p.text).join(" "), 500))} » |`;
+    })
+    .join("\n")}`;
 }
 
-/** Résumé en texte suivi : les phrases les plus représentatives de la réunion, sans citation. */
-function resumeRedige(a: Analyse, max = 8): string {
-  const retenues = dedoublonner(
-    a.phrases.filter((p) => p.kind === "speech" && significatif(p) && mots(p.text).length >= 4 && !p.text.trim().endsWith("?")).sort((x, y) => y.score - x.score),
+/** Synthèse structurée : objet, intervenants, bilan chiffré, points saillants. */
+function synthese(a: Analyse, max = 5): string {
+  const total = a.intervenants.reduce((n, i) => n + i.tempsMs, 0) || 1;
+  const saillants = dedoublonner(
+    a.phrases
+      .filter((p) => p.kind !== "bookmark" && significatif(p) && mots(p.text).length >= 4 && !p.text.trim().endsWith("?"))
+      .sort((x, y) => y.score - x.score),
     (p) => p.text,
   )
     .slice(0, max)
     .sort((x, y) => x.t - y.t);
-  const nb = a.intervenants.length;
-  const intro = `Réunion de ${a.dureeMs ? duree(a.dureeMs) : "durée non déterminée"}${nb ? `, ${nb} intervenant${nb > 1 ? "s" : ""}` : ""}${a.themes.length ? ` ; thèmes dominants : ${a.themes.slice(0, 5).join(", ").toLowerCase()}` : ""}.`;
+  const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
   const bilan = [
-    a.decisions.length ? `${a.decisions.length} décision${a.decisions.length > 1 ? "s" : ""}` : "aucune décision formelle",
-    a.actions.length ? `${a.actions.length} action${a.actions.length > 1 ? "s" : ""}` : "aucune action",
-    a.risques.length ? `${a.risques.length} risque${a.risques.length > 1 ? "s" : ""} ou menace${a.risques.length > 1 ? "s" : ""}` : "",
-  ].filter(Boolean).join(", ");
-  const corps = retenues.map((p) => couper(p.text.replace(/[,;:\s]+$/, ""), 400).replace(/([^.!?…])$/, "$1.")).join(" ");
-  return `${intro} Relevé : ${bilan}.${corps ? `\n\n${corps}` : ""}`;
+    a.decisions.length ? pluriel(a.decisions.length, "décision") : "aucune décision formelle",
+    a.actions.length ? pluriel(a.actions.length, "action") : "aucune action",
+    a.risques.length ? pluriel(a.risques.length, "risque ou menace") : "aucun risque signalé",
+    a.suspens.length ? pluriel(a.suspens.length, "point en suspens") : "",
+  ].filter(Boolean);
+  return [
+    `| | |\n|---|---|`,
+    `| **Objet des échanges** | ${cellule(a.themes.length ? a.themes.slice(0, 6).join(", ") : "À préciser")} |`,
+    `| **Intervenants** | ${cellule(a.intervenants.map((i) => `${i.nom} (${Math.round((i.tempsMs / total) * 100)} %)`).join(", ") || "À préciser")} |`,
+    `| **Bilan** | ${bilan.join(" · ")} |`,
+  ].join("\n") +
+    (saillants.length
+      ? `\n\n**Points saillants**\n\n${saillants.map((p) => `- ${p.kind === "speech" ? `**${p.speaker}**` : "✎"} [${formatTimestamp(p.t)}] — ${couper(p.text, 260)}`).join("\n")}`
+      : "");
 }
 
 const MENTION =
@@ -566,12 +625,12 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
       [
         titre,
         entete(m, a, [["Secrétaire de séance", "À désigner"]]),
-        `## Résumé de la séance\n\n${resumeRedige(a)}`,
+        `## Synthèse de la séance\n\n${synthese(a)}`,
         `## 1. Liste d'émargement\n\n${emargement(m, a)}`,
         `## 2. Ordre du jour\n\n${numerotee(agenda, `_Non communiqué. Thèmes abordés : ${a.themes.join(", ").toLowerCase() || "à préciser"}._`)}`,
         `## 3. Déroulé de la séance\n\n${a.points
           .filter((pt) => pt.phrases.length)
-          .map((pt, i) => `### 3.${i + 1}. ${pt.titre}\n\n${liste(resumePoint(pt, 8, a.phrases))}`)
+          .map((pt, i) => `### 3.${i + 1}. ${pt.titre}\n\n${deroule(pt, 12, a.phrases)}`)
           .join("\n\n") || "_Aucun échange enregistré._"}`,
         `## 4. Décisions et résolutions\n\n${decisions}`,
         `## 5. Questions diverses et points en suspens\n\n${suspens}`,
@@ -584,14 +643,14 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
         entete(m, a, [["Rédacteur", "À préciser"]]),
         `**Participants** : ${m.participants.length ? m.participants.map((p) => p.name).join(", ") : a.intervenants.map((i) => i.nom).join(", ") || "à préciser"}`,
         `## 1. Objectifs de la réunion\n\n${agenda.length ? liste(agenda) : `Thèmes principaux abordés : ${a.themes.join(", ") || "à préciser"}.`}`,
-        `## 2. Synthèse des échanges\n\n${resumeRedige(a)}\n\n${a.points
+        `## 2. Synthèse des échanges\n\n${synthese(a)}\n\n${a.points
           .filter((pt) => pt.phrases.length)
           .map((pt) => {
             const dec = a.decisions.filter((d) => pt.phrases.includes(d));
             const sus = a.suspens.filter((d) => pt.phrases.includes(d));
             return [
               `### ${pt.titre}`,
-              `**Principaux échanges**\n\n${liste(resumePoint(pt, 6, a.phrases))}`,
+              `**Principaux échanges**\n\n${deroule(pt, 8, a.phrases)}`,
               dec.length ? `**Points d'accord / décisions**\n\n${liste(dec.map(cite))}` : "",
               sus.length ? `**En suspens**\n\n${liste(sus.map(cite))}` : "",
             ]
@@ -603,8 +662,8 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
         `## 4. Plan d'actions\n\n${tableauActions(a, "cr")}`,
         `## 5. Prochaine réunion\n\n${a.prochaineReunion ? cite(a.prochaineReunion) : "À préciser."}`,
         a.intervenants.length
-          ? `## Annexe — Temps de parole\n\n| Intervenant | Temps | Interventions |\n|---|---|---|\n${a.intervenants
-              .map((i) => `| ${cellule(i.nom)} | ${duree(i.tempsMs)} | ${i.interventions} |`)
+          ? `## Annexe — Temps de parole\n\n| Intervenant | Temps de parole | Part | Interventions |\n|---|---|---|---|\n${a.intervenants
+              .map((i, _, tous) => `| ${cellule(i.nom)} | ${dureeFine(i.tempsMs)} | ${Math.round((i.tempsMs / (tous.reduce((n, x) => n + x.tempsMs, 0) || 1)) * 100)} % | ${i.interventions} |`)
               .join("\n")}`
           : "",
       ]
@@ -621,7 +680,7 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
       return [
         titre,
         `| | |\n|---|---|\n| **DESTINATAIRE** | À préciser |\n| **OBJET** | ${cellule(m.title || "À préciser")} |\n| **DATE** | ${formatDate(m.date, m.timeZone)} |\n| **CLASSIFICATION** | ${CLASSIFICATION_LABELS[m.classification]} |`,
-        `## L'essentiel\n\n${resumeRedige(a, 5)}\n\n${liste(essentiel.map(cite))}`,
+        `## L'essentiel\n\n${liste(essentiel.map(cite))}`,
         `## Contexte\n\nRéunion de ${a.dureeMs ? duree(a.dureeMs) : "durée non déterminée"}${m.location ? ` (${m.location})` : ""}, ${m.participants.length || a.intervenants.length} participant(s). Thèmes dominants : ${a.themes.join(", ") || "à préciser"}.`,
         `## Analyse — risques et points de vigilance\n\n${risques}`,
         `## Décisions prises\n\n${decisions}`,
@@ -721,7 +780,7 @@ export function repondreSansIA(req: Pick<AskRequest, "meeting" | "transcript" | 
         )
           .slice(0, 3)
           .sort((x, y) => x.t - y.t);
-        return `**${i.nom}** (${duree(i.tempsMs)} de parole, ${i.interventions} interventions)\n\n${liste(siennes.map((p) => `${ts(p)} ${couper(p.text)}`))}`;
+        return `**${i.nom}** (${dureeFine(i.tempsMs)} de parole, ${i.interventions} interventions)\n\n${liste(siennes.map((p) => `${ts(p)} ${couper(p.text)}`))}`;
       })
       .join("\n\n") || "Aucun intervenant identifié.";
   }

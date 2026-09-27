@@ -147,6 +147,7 @@ mark { background: color-mix(in srgb, var(--warning) 35%, transparent); color: i
 .document table { border-collapse: collapse; width: 100%; font-size: .9rem; }
 .document th, .document td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
 .document th { background: var(--surface-2); }
+.document td.court, .document th.court { white-space: nowrap; }
 .document blockquote { border-left: 3px solid var(--accent); margin-left: 0; padding-left: 12px; color: var(--muted); }
 .table-wrap { overflow-x: auto; }
 .doc-editor { min-height: 60vh; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85rem; }
