@@ -201,6 +201,7 @@ export function DocumentsPanel({
           Utilisé : {moteurActuel}.{moteur === "auto" && " (ordre : Mon API → clé gratuite → appareil)"}
           {autonome && " Rien ne quitte l'appareil."}
           {autonome === "extraction" && " Le document reprend les propos exacts (décisions, actions, risques, points en suspens), horodatés, à relire et reformuler."}
+          {autonome === "extraction" && !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && " Sur PC, pour un texte rédigé et reformulé, choisissez « IA locale »."}
           {autonome === "ia-locale" && " Premier usage : téléchargement du modèle (≈ 0,5 à 1,2 Go) ; ensuite hors ligne. Lent sur téléphone."}
         </p>
         <div className="row" style={{ marginTop: 10 }}>

@@ -104,3 +104,21 @@ describe("questions sans IA", () => {
     expect(repondreSansIA({ ...req, question: "Parle-t-on de météorologie ?" })).toContain("pas avoir été abordé");
   });
 });
+
+describe("phrases coupées par la transcription", () => {
+  it("recolle les fragments, même attribués à un autre locuteur", () => {
+    const a = analyser({
+      ...req,
+      transcript: [
+        t(0, "Locuteur 1", "Au cours de la majeure partie de l'histoire, nous avons eu"),
+        t(5, "Locuteur 1", "deux besoins fondamentaux."),
+        t(10, "Locuteur 1", "Si vous regardez les sociétés anciennes, l'organisation la plus"),
+        t(15, "Locuteur 2", "naturelle était matriarcale."),
+      ],
+    });
+    const textes = a.phrases.map((p) => p.text);
+    expect(textes).toContain("Au cours de la majeure partie de l'histoire, nous avons eu deux besoins fondamentaux.");
+    expect(textes).toContain("Si vous regardez les sociétés anciennes, l'organisation la plus naturelle était matriarcale.");
+    expect(a.phrases[1].t).toBe(10_000);
+  });
+});

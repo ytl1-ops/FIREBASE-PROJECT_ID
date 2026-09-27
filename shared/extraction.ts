@@ -79,7 +79,11 @@ const STOPWORDS = new Set(
     "voir vais allez allons va vont dit dire disait bon ben euh hein bah enfin quoi truc chose choses genre effectivement " +
     "justement vraiment voilà simplement actuellement notamment egalement toujours jamais rien personne quelque quelques " +
     "merci bonjour monsieur madame d'accord okay accord ceux-ci celle-ci celui-ci peut-etre etc " +
-    "reste restent point points niveau fois moment partie prochaine prochain dernier derniere question questions nouvel nouvelle ordre cours faire fait pense crois sais veux voulons"
+    "reste restent point points niveau fois moment partie prochaine prochain dernier derniere question questions nouvel nouvelle ordre cours faire fait pense crois sais veux voulons " +
+    "premier premiere premiers premieres deuxieme troisieme second seconde sommes etes serons etions avions avez avaient " +
+    "ont aurait auraient serait seraient fais faites vais veut veulent voulez pouvons pouvez devons devez doit doivent " +
+    "plupart generalement souvent vraie vrai vrais vraies chaque autre beaucoup plusieurs certains certaines celui "+
+    "regardez regarder savez savons parler parle parlons disons exemple"
   ).split(" "),
 );
 
@@ -147,13 +151,51 @@ function extraitOriginal(text: string, re: RegExp): string | undefined {
 
 // ------------------------------------------------------------------ Analyse
 
+/** Un segment se termine-t-il par une ponctuation de fin de phrase ? */
+const phraseFinie = (t: string) => /[.!?…»"]\s*$/.test(t);
+
+/**
+ * Whisper découpe l'audio en tranches de quelques secondes, souvent au milieu d'une phrase
+ * (« nous avons eu » | « deux besoins… »), et la séparation des voix attribue parfois la fin
+ * de la phrase à un autre locuteur. On recolle donc les fragments avant l'analyse.
+ */
+function recoller(transcript: TranscriptSegment[]): { t: number; speakerId?: string; kind: Phrase["kind"]; morceaux: { t: number; text: string }[] }[] {
+  const blocs: { t: number; speakerId?: string; kind: Phrase["kind"]; morceaux: { t: number; text: string }[] }[] = [];
+  for (const seg of transcript) {
+    const text = seg.text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    const kind = seg.kind ?? "speech";
+    const prev = blocs.at(-1);
+    if (prev && kind === "speech" && prev.kind === "speech") {
+      const dernier = prev.morceaux.at(-1)?.text ?? "";
+      const longueur = prev.morceaux.reduce((n, m) => n + m.text.length + 1, 0);
+      const suite = /^[a-zà-öø-ÿ,;:]/u.test(text);
+      if (!phraseFinie(dernier) && longueur < 600 && (prev.speakerId === seg.speakerId || suite)) {
+        prev.morceaux.push({ t: seg.start, text });
+        continue;
+      }
+    }
+    blocs.push({ t: seg.start, speakerId: seg.speakerId, kind, morceaux: [{ t: seg.start, text }] });
+  }
+  return blocs;
+}
+
 function phrasesDe(meeting: MeetingInfo, transcript: TranscriptSegment[], notes?: string): Phrase[] {
   const out: Phrase[] = [];
-  for (const seg of transcript) {
-    const kind = seg.kind ?? "speech";
-    const speaker = kind === "speech" ? speakerName(meeting.participants, seg.speakerId) : kind === "note" ? "Note du rédacteur" : "Marque-page";
-    for (const text of decouperPhrases(seg.text)) {
-      out.push({ t: seg.start, speaker, speakerKnown: Boolean(seg.speakerId), text, kind, point: 0, score: 0 });
+  for (const bloc of recoller(transcript)) {
+    const kind = bloc.kind;
+    const speaker = kind === "speech" ? speakerName(meeting.participants, bloc.speakerId) : kind === "note" ? "Note du rédacteur" : "Marque-page";
+    // Horodatage de chaque phrase : celui du fragment où elle commence.
+    const texte = bloc.morceaux.map((m) => m.text).join(" ");
+    const debuts: number[] = [];
+    bloc.morceaux.reduce((pos, m) => (debuts.push(pos), pos + m.text.length + 1), 0);
+    let curseur = 0;
+    for (const text of decouperPhrases(texte)) {
+      const pos = Math.max(curseur, texte.indexOf(text, curseur));
+      curseur = pos + text.length;
+      let i = 0;
+      while (i + 1 < debuts.length && debuts[i + 1] <= pos) i++;
+      out.push({ t: bloc.morceaux[i].t, speaker, speakerKnown: Boolean(bloc.speakerId), text: premiereMaj(text), kind, point: 0, score: 0 });
     }
   }
   if (notes?.trim()) {
@@ -234,11 +276,20 @@ export function analyser(req: Pick<GenerateRequest, "meeting" | "transcript" | "
       formes.set(r, f);
     }
   }
+  // Forme accentuée d'origine de chaque mot (normaliser conserve la longueur du texte).
+  const accentuee = new Map<string, string>();
+  for (const p of phrases) {
+    const n = normaliser(p.text);
+    for (const m of n.matchAll(/[a-z0-9-]{4,}/g)) accentuee.set(m[0], p.text.normalize("NFC").slice(m.index, m.index + m[0].length).toLowerCase());
+  }
   const themes = [...freq.entries()]
     .filter(([, n]) => n >= 2)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-    .map(([r]) => premiereMaj([...(formes.get(r) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1])[0][0]));
+    .map(([r]) => {
+      const w = [...(formes.get(r) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1])[0][0];
+      return premiereMaj(accentuee.get(w) ?? w);
+    });
 
   // Score des phrases : densité en termes fréquents, bonus pour les moments marqués.
   const marquesT = phrases.filter((p) => p.kind === "bookmark").map((p) => p.t);
@@ -369,9 +420,9 @@ export function analyser(req: Pick<GenerateRequest, "meeting" | "transcript" | "
 const ts = (p: Phrase) => `[${formatTimestamp(p.t)}]`;
 const cite = (p: Phrase) =>
   p.kind === "speech" ? `**${p.speaker}** ${ts(p)} : ${couper(p.text)}` : `${p.kind === "bookmark" ? "★" : "✎"} ${ts(p)} ${couper(p.text)}`;
-const liste = (items: string[], vide = "_Aucun élément détecté — à préciser._") =>
+const liste = (items: string[], vide = "_Aucun élément relevé dans les échanges._") =>
   items.length ? items.map((x) => `- ${x}`).join("\n") : vide;
-const numerotee = (items: string[], vide = "_Aucun élément détecté — à préciser._") =>
+const numerotee = (items: string[], vide = "_Aucun élément relevé dans les échanges._") =>
   items.length ? items.map((x, i) => `${i + 1}. ${x}`).join("\n") : vide;
 
 function duree(ms: number): string {
@@ -408,7 +459,7 @@ function emargement(meeting: MeetingInfo, a: Analyse, signature = false): string
 }
 
 function tableauActions(a: Analyse, colonnes: "cr" | "rd" | "tbm"): string {
-  if (!a.actions.length) return "_Aucune action détectée — à préciser._";
+  if (!a.actions.length) return "_Aucune action ni aucun engagement n'ont été formulés explicitement._";
   if (colonnes === "tbm") {
     return `| Action | Responsable | Échéance |\n|---|---|---|\n${a.actions
       .map((x) => `| ${cellule(x.phrase.text)} ${ts(x.phrase)} | ${cellule(x.responsable)} | ${cellule(x.echeance)} |`)
@@ -433,11 +484,44 @@ function piecesJointes(a: Analyse): string {
 /** Propos sans contenu (« Oui. », « Merci. ») écartés des résumés. */
 const significatif = (p: Phrase) => p.kind !== "speech" || (mots(p.text).length >= 2 && !RE_REMPLISSAGE.test(normaliser(p.text))) || mots(p.text).length >= 4;
 
-function resumePoint(pt: { titre: string; phrases: Phrase[] }, max: number): string[] {
-  return dedoublonner([...pt.phrases].filter(significatif).sort((x, y) => y.score - x.score), (p) => p.text)
+/**
+ * Propos les plus représentatifs d'une partie, dans l'ordre chronologique. Les phrases
+ * voisines d'un même intervenant sont regroupées en une seule intervention lisible.
+ */
+function resumePoint(pt: { titre: string; phrases: Phrase[] }, max: number, toutes: Phrase[]): string[] {
+  const choisies = dedoublonner([...pt.phrases].filter(significatif).sort((x, y) => y.score - x.score), (p) => p.text)
     .slice(0, max)
-    .sort((x, y) => x.t - y.t)
-    .map(cite);
+    .sort((x, y) => x.t - y.t || toutes.indexOf(x) - toutes.indexOf(y));
+  const groupes: Phrase[][] = [];
+  for (const p of choisies) {
+    const g = groupes.at(-1);
+    const precedent = g?.at(-1);
+    const voisines = precedent && toutes.indexOf(p) - toutes.indexOf(precedent) <= 3;
+    if (g && precedent && precedent.kind === "speech" && p.kind === "speech" && precedent.speaker === p.speaker && voisines) g.push(p);
+    else groupes.push([p]);
+  }
+  return groupes.map((g) =>
+    g.length === 1 ? cite(g[0]) : `**${g[0].speaker}** ${ts(g[0])} : ${couper(g.map((p) => p.text).join(" "), 700)}`,
+  );
+}
+
+/** Résumé en texte suivi : les phrases les plus représentatives de la réunion, sans citation. */
+function resumeRedige(a: Analyse, max = 8): string {
+  const retenues = dedoublonner(
+    a.phrases.filter((p) => p.kind === "speech" && significatif(p) && mots(p.text).length >= 4 && !p.text.trim().endsWith("?")).sort((x, y) => y.score - x.score),
+    (p) => p.text,
+  )
+    .slice(0, max)
+    .sort((x, y) => x.t - y.t);
+  const nb = a.intervenants.length;
+  const intro = `Réunion de ${a.dureeMs ? duree(a.dureeMs) : "durée non déterminée"}${nb ? `, ${nb} intervenant${nb > 1 ? "s" : ""}` : ""}${a.themes.length ? ` ; thèmes dominants : ${a.themes.slice(0, 5).join(", ").toLowerCase()}` : ""}.`;
+  const bilan = [
+    a.decisions.length ? `${a.decisions.length} décision${a.decisions.length > 1 ? "s" : ""}` : "aucune décision formelle",
+    a.actions.length ? `${a.actions.length} action${a.actions.length > 1 ? "s" : ""}` : "aucune action",
+    a.risques.length ? `${a.risques.length} risque${a.risques.length > 1 ? "s" : ""} ou menace${a.risques.length > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(", ");
+  const corps = retenues.map((p) => couper(p.text.replace(/[,;:\s]+$/, ""), 400).replace(/([^.!?…])$/, "$1.")).join(" ");
+  return `${intro} Relevé : ${bilan}.${corps ? `\n\n${corps}` : ""}`;
 }
 
 const MENTION =
@@ -473,7 +557,7 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
   const consignesRedacteur = req.instructions?.trim()
     ? `\n\n> Consignes du rédacteur (à appliquer lors de la relecture) : ${req.instructions.trim()}`
     : "";
-  const decisions = numerotee(a.decisions.map(cite));
+  const decisions = numerotee(a.decisions.map(cite), "_Aucune décision formelle n'a été exprimée au cours des échanges._");
   const suspens = liste(a.suspens.map(cite), "_Aucun point en suspens détecté._");
   const risques = liste(a.risques.map(cite), "_Aucun risque ou menace détecté dans les échanges._");
 
@@ -482,11 +566,12 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
       [
         titre,
         entete(m, a, [["Secrétaire de séance", "À désigner"]]),
+        `## Résumé de la séance\n\n${resumeRedige(a)}`,
         `## 1. Liste d'émargement\n\n${emargement(m, a)}`,
-        `## 2. Ordre du jour\n\n${numerotee(agenda, "_Non renseigné._")}`,
+        `## 2. Ordre du jour\n\n${numerotee(agenda, `_Non communiqué. Thèmes abordés : ${a.themes.join(", ").toLowerCase() || "à préciser"}._`)}`,
         `## 3. Déroulé de la séance\n\n${a.points
           .filter((pt) => pt.phrases.length)
-          .map((pt, i) => `### 3.${i + 1}. ${pt.titre}\n\n${liste(resumePoint(pt, 8))}`)
+          .map((pt, i) => `### 3.${i + 1}. ${pt.titre}\n\n${liste(resumePoint(pt, 8, a.phrases))}`)
           .join("\n\n") || "_Aucun échange enregistré._"}`,
         `## 4. Décisions et résolutions\n\n${decisions}`,
         `## 5. Questions diverses et points en suspens\n\n${suspens}`,
@@ -499,14 +584,14 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
         entete(m, a, [["Rédacteur", "À préciser"]]),
         `**Participants** : ${m.participants.length ? m.participants.map((p) => p.name).join(", ") : a.intervenants.map((i) => i.nom).join(", ") || "à préciser"}`,
         `## 1. Objectifs de la réunion\n\n${agenda.length ? liste(agenda) : `Thèmes principaux abordés : ${a.themes.join(", ") || "à préciser"}.`}`,
-        `## 2. Synthèse des échanges\n\n${a.points
+        `## 2. Synthèse des échanges\n\n${resumeRedige(a)}\n\n${a.points
           .filter((pt) => pt.phrases.length)
           .map((pt) => {
             const dec = a.decisions.filter((d) => pt.phrases.includes(d));
             const sus = a.suspens.filter((d) => pt.phrases.includes(d));
             return [
               `### ${pt.titre}`,
-              `**Principaux échanges**\n\n${liste(resumePoint(pt, 6))}`,
+              `**Principaux échanges**\n\n${liste(resumePoint(pt, 6, a.phrases))}`,
               dec.length ? `**Points d'accord / décisions**\n\n${liste(dec.map(cite))}` : "",
               sus.length ? `**En suspens**\n\n${liste(sus.map(cite))}` : "",
             ]
@@ -536,7 +621,7 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
       return [
         titre,
         `| | |\n|---|---|\n| **DESTINATAIRE** | À préciser |\n| **OBJET** | ${cellule(m.title || "À préciser")} |\n| **DATE** | ${formatDate(m.date, m.timeZone)} |\n| **CLASSIFICATION** | ${CLASSIFICATION_LABELS[m.classification]} |`,
-        `## L'essentiel\n\n${liste(essentiel.map(cite))}`,
+        `## L'essentiel\n\n${resumeRedige(a, 5)}\n\n${liste(essentiel.map(cite))}`,
         `## Contexte\n\nRéunion de ${a.dureeMs ? duree(a.dureeMs) : "durée non déterminée"}${m.location ? ` (${m.location})` : ""}, ${m.participants.length || a.intervenants.length} participant(s). Thèmes dominants : ${a.themes.join(", ") || "à préciser"}.`,
         `## Analyse — risques et points de vigilance\n\n${risques}`,
         `## Décisions prises\n\n${decisions}`,
@@ -582,7 +667,7 @@ export function redigerSansIA(req: GenerateRequest, analyse?: Analyse): string {
             ? `| N° | Décision | Point de l'ordre du jour | Porteur |\n|---|---|---|---|\n${a.decisions
                 .map((d, i) => `| ${i + 1} | ${cellule(d.text)} ${ts(d)} | ${cellule(a.points[d.point]?.titre ?? "—")} | ${cellule(d.kind === "speech" ? d.speaker : "À préciser")} |`)
                 .join("\n")}`
-            : "_Aucune décision détectée — à préciser._"
+            : "_Aucune décision formelle n'a été exprimée au cours des échanges._"
         }`,
         `## 2. Actions\n\n${tableauActions(a, "rd")}`,
         `## 3. Points en suspens nécessitant un arbitrage\n\n${suspens}`,
